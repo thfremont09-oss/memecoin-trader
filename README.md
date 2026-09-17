@@ -105,7 +105,60 @@ run `memecoin-trader run` / `status` / `dashboard` / `reset`.)
 All state lives in `data/trader.db` (SQLite) and `data/trader.log`. Both are
 gitignored.
 
-## Deploying to Fly.io (24/7)
+## Running 24/7 on your own Windows PC (free)
+
+GitHub only holds the code — nothing runs there. The bot needs to run
+somewhere that stays on. This is the free option: it uses the PC you already
+own, needs no signup and no credit card, and doesn't change anything about
+how the bot works — it just keeps `run` and `dashboard` running in the
+background permanently, restarting them automatically if either ever
+crashes, and starting them again automatically when you log in.
+
+**Requirements:** the PC needs to actually stay on and logged in (it can be
+locked, just not asleep or shut down) whenever you want the bot trading.
+
+1. Finish the [Setup](#setup-windows-powershell) steps above first
+   (`.venv` created, `pip install -r requirements.txt` done) if you haven't.
+
+2. From inside the repo folder, run the installer once:
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File .\scripts\install_scheduled_tasks.ps1
+   ```
+   This registers two Windows Scheduled Tasks — `MemecoinTraderEngine` and
+   `MemecoinTraderDashboard` — starts them immediately, and sets them to
+   auto-start every time you log in and auto-restart within 5 seconds if
+   either ever crashes.
+
+3. Open **http://127.0.0.1:8787** any time to check balance/positions/trades.
+   Logs are in `data\engine_watchdog.log` and `data\dashboard_watchdog.log`.
+
+4. **Stop Windows from sleeping** while plugged in, or trading pauses whenever
+   the PC does:
+   ```powershell
+   powercfg /change standby-timeout-ac 0
+   ```
+
+**To check the tasks are running:** open the Start menu, search "Task
+Scheduler", and look for `MemecoinTraderEngine` / `MemecoinTraderDashboard`
+in the task list (Status should say "Running").
+
+**To stop everything:**
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\uninstall_scheduled_tasks.ps1
+```
+This removes the scheduled tasks and stops both processes; `data\trader.db`
+(your trade history) is left alone.
+
+**Note:** since the tasks trigger "at log on," a PC reboot won't restart the
+bot until you log back in. If you want it to survive an unattended reboot
+too, the tasks can be changed to trigger "at startup" instead (runs as
+SYSTEM rather than your user) — ask if you want that set up.
+
+## Deploying to Fly.io (24/7, requires a card on file)
+
+Fly.io requires a credit/debit card on file for any app — even usage that
+stays within its free allowance — so only use this if you're fine with that.
+If not, use the Windows PC option above instead; it's genuinely free.
 
 GitHub only holds the code — nothing runs there. To have the bot trade and
 be checkable around the clock, it needs to run on a machine that's always
