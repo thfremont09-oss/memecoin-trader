@@ -6,7 +6,7 @@ from decimal import Decimal
 from memecoin_trader.config import load_settings
 from memecoin_trader.engine import TradingEngine
 from memecoin_trader.execution.paper_executor import PaperExecutor
-from tests.conftest import make_pair, make_signal
+from tests.conftest import make_pair, make_rug_report, make_signal
 
 
 class FakeSignalSource:
@@ -26,12 +26,26 @@ class FakeMarket:
         return self.pairs.get(token_address)
 
 
+class FakeRugCheckClient:
+    """Stands in for the real (network-calling) RugCheckClient in tests —
+    reports every token as clean unless a test explicitly overrides it."""
+
+    def __init__(self):
+        self.reports = {}
+
+    def get_risk_report(self, token_address):
+        if token_address in self.reports:
+            return self.reports[token_address]
+        return make_rug_report(token_address=token_address)
+
+
 def build_engine(conn):
     settings = load_settings()
     signal_source = FakeSignalSource()
     market = FakeMarket()
     executor = PaperExecutor(settings.paper_execution)
-    engine = TradingEngine(settings, conn, market, signal_source, executor)
+    rug_client = FakeRugCheckClient()
+    engine = TradingEngine(settings, conn, market, signal_source, executor, rug_client=rug_client)
     return engine, signal_source, market
 
 
@@ -79,3 +93,40 @@ def test_low_quality_signal_is_rejected_and_logged(conn):
     signals_logged = engine.ledger.get_recent_signals()
     assert len(signals_logged) == 1
     assert signals_logged[0]["acted_on"] == 0
+
+
+def test_dangerous_rug_report_blocks_the_buy(conn):
+    engine, signal_source, market = build_engine(conn)
+    token = "TOKEN3333333333333333333333333333333333333"
+
+    market.pairs[token] = make_pair(token_address=token, price_usd="1.0")
+    engine.rug_client.reports[token] = make_rug_report(
+        token_address=token, danger_flags=("Mint authority not renounced",)
+    )
+    signal_source.queue = [make_signal(token_address=token, score=90)]
+
+    engine._poll_signals()
+
+    assert engine.ledger.get_open_positions() == []
+    assert engine.ledger.get_cash_usd() == Decimal("100")
+
+
+def test_successful_buy_stores_trade_features_for_training(conn):
+    engine, signal_source, market = build_engine(conn)
+    token = "TOKEN4444444444444444444444444444444444444"
+
+    market.pairs[token] = make_pair(token_address=token, price_usd="1.0")
+    signal_source.queue = [make_signal(token_address=token, score=90)]
+    engine._poll_signals()
+
+    position = engine.ledger.get_open_positions()[0]
+
+    # close it out so it shows up in the training dataset
+    market.pairs[token] = make_pair(token_address=token, price_usd="0.70")
+    engine._manage_open_positions()
+
+    dataset = engine.ledger.get_training_dataset()
+    assert len(dataset) == 1
+    features, label = dataset[0]
+    assert label == 0  # closed at a loss
+    assert features["signal_score"] == 90.0

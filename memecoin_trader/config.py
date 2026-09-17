@@ -16,6 +16,7 @@ DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config.yaml"
 DATA_DIR = Path(os.environ.get("MEMECOIN_DATA_DIR", str(PROJECT_ROOT / "data")))
 DB_PATH = DATA_DIR / "trader.db"
 LOG_PATH = DATA_DIR / "trader.log"
+MODEL_PATH = DATA_DIR / "model.joblib"
 
 
 @dataclass(frozen=True)
@@ -25,6 +26,21 @@ class TimingConfig:
     position_check_interval_seconds: int
     equity_snapshot_interval_seconds: int
     token_cooldown_minutes: int
+
+
+@dataclass(frozen=True)
+class RugCheckConfig:
+    enabled: bool
+    fail_closed: bool
+    max_danger_flags: int
+    min_lp_locked_pct: float
+
+
+@dataclass(frozen=True)
+class MlConfig:
+    enabled: bool
+    min_confidence: float
+    min_training_trades: int
 
 
 @dataclass(frozen=True)
@@ -38,6 +54,10 @@ class EntryConfig:
     position_size_pct_of_cash: float
     min_trade_usd: float
     max_trade_usd: float
+    min_liquidity_to_fdv_pct: float
+    max_price_change_5m_pct: float
+    rug_check: RugCheckConfig
+    ml: MlConfig
 
 
 @dataclass(frozen=True)
@@ -48,6 +68,7 @@ class ExitConfig:
     trailing_stop_pct: float
     max_hold_minutes: float
     liquidity_rug_fraction: float
+    sudden_liquidity_drop_pct: float
 
 
 @dataclass(frozen=True)
@@ -117,7 +138,10 @@ def load_settings(config_path: Path | None = None, env_path: Path | None = None)
     mode = (mode_from_env or raw.get("mode") or "paper").strip().lower()
 
     timing = TimingConfig(**raw["timing"])
-    entry = EntryConfig(**raw["entry"])
+    entry_raw = dict(raw["entry"])
+    rug_check = RugCheckConfig(**entry_raw.pop("rug_check"))
+    ml = MlConfig(**entry_raw.pop("ml"))
+    entry = EntryConfig(rug_check=rug_check, ml=ml, **entry_raw)
     exit_cfg = ExitConfig(**raw["exit"])
     paper_exec = PaperExecutionConfig(**raw["execution"]["paper"])
     live_exec = LiveExecutionConfig(**raw["execution"]["live"])

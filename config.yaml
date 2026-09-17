@@ -27,6 +27,19 @@ entry:
   position_size_pct_of_cash: 0.20    # fraction of *current cash* per new trade
   min_trade_usd: 5.0
   max_trade_usd: 40.0
+  min_liquidity_to_fdv_pct: 2.0      # skip tokens whose liquidity is a razor-thin sliver of their reported valuation (easy to manipulate/rug)
+  max_price_change_5m_pct: 150.0     # skip tokens that already spiked this hard in the last 5 minutes (chasing the top of a pump)
+
+  rug_check:
+    enabled: true                    # query RugCheck.xyz before buying
+    fail_closed: true                # if the check errors out or the token isn't indexed yet, skip the trade rather than assume it's safe
+    max_danger_flags: 0              # any RugCheck "danger"-level finding blocks the trade by default
+    min_lp_locked_pct: 50.0          # require at least this much LP liquidity locked/burned, when reported
+
+  ml:
+    enabled: false                   # off until a model has actually been trained (see `memecoin-trader train`)
+    min_confidence: 0.55             # predicted P(profitable) required, on top of all rule-based filters above
+    min_training_trades: 30          # `train` refuses to produce a model with fewer closed trades than this
 
 exit:
   stop_loss_pct: 0.25                # sell all if price drops 25% from entry
@@ -35,6 +48,7 @@ exit:
   trailing_stop_pct: 0.20            # after that, trail the peak by this much
   max_hold_minutes: 240              # force exit after this long regardless
   liquidity_rug_fraction: 0.4        # emergency exit if liquidity falls below this fraction of entry liquidity
+  sudden_liquidity_drop_pct: 0.5     # emergency exit if liquidity drops this much between two consecutive checks, even if still above the entry-relative floor above
 
 execution:
   paper:

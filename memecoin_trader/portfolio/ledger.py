@@ -5,6 +5,7 @@ portfolio/db.py) — no floats touch a balance anywhere in this module.
 """
 from __future__ import annotations
 
+import json
 import sqlite3
 from dataclasses import replace
 from datetime import datetime, timezone
@@ -308,6 +309,17 @@ class Ledger:
         ).fetchone()
         return Decimal(row["price_usd"]) if row else None
 
+    def get_latest_liquidity(self, token_address: str) -> Decimal | None:
+        """The liquidity_usd from the most recent snapshot recorded *before*
+        this call — used to detect a sudden single-interval liquidity drop
+        by comparing against the fresh reading about to be recorded."""
+        row = self._conn.execute(
+            "SELECT liquidity_usd FROM price_snapshots WHERE token_address = ? "
+            "ORDER BY captured_at DESC LIMIT 1",
+            (token_address,),
+        ).fetchone()
+        return Decimal(row["liquidity_usd"]) if row and row["liquidity_usd"] is not None else None
+
     def get_price_history(self, token_address: str, limit: int = 200) -> list[Decimal]:
         rows = self._conn.execute(
             """
@@ -365,3 +377,40 @@ class Ledger:
         return self._conn.execute(
             "SELECT * FROM signals_log ORDER BY received_at DESC LIMIT ?", (limit,)
         ).fetchall()
+
+    # ------------------------------------------------------------- ML data
+
+    def save_trade_features(self, position_id: int, features: dict[str, float]) -> None:
+        """Snapshots the entry-time feature vector for a position, so it can
+        later be paired with that trade's eventual outcome for training."""
+        self._conn.execute(
+            "INSERT OR REPLACE INTO trade_features (position_id, features_json, captured_at) VALUES (?, ?, ?)",
+            (position_id, json.dumps(features), _now_iso()),
+        )
+
+    def get_training_dataset(self) -> list[tuple[dict[str, float], int]]:
+        """(features, label) pairs for every closed position with a saved
+        feature snapshot. label=1 if the position's total realized P&L (across
+        all its sells, partial take-profits included) was positive.
+
+        The SQL-side float SUM here is only ever used to derive this binary
+        label for training — it never touches the actual ledger balance.
+        """
+        rows = self._conn.execute(
+            """
+            SELECT tf.features_json AS features_json,
+                   COALESCE(SUM(CASE WHEN t.side = 'sell' THEN CAST(t.realized_pnl_usd AS REAL) ELSE 0 END), 0)
+                       AS total_pnl
+            FROM trade_features tf
+            JOIN positions p ON p.id = tf.position_id
+            LEFT JOIN trades t ON t.position_id = tf.position_id
+            WHERE p.status = 'closed'
+            GROUP BY tf.position_id
+            """
+        ).fetchall()
+        dataset = []
+        for row in rows:
+            features = json.loads(row["features_json"])
+            label = 1 if row["total_pnl"] > 0 else 0
+            dataset.append((features, label))
+        return dataset

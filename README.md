@@ -29,6 +29,8 @@ market data                                                            ▲
 | Market data (price, liquidity, volume, pair age) | **Real** — pulled live from the public [DexScreener API](https://docs.dexscreener.com/api/reference), no key needed |
 | Trade fills (slippage, fees) | **Simulated**, but modeled on the actual liquidity of the real pair, so a thin pool gets realistically worse fills than a deep one |
 | Twitter/X hype signal | **Simulated** by default — see below. A real X API adapter exists and is a one-line switch away once you have API access |
+| Rug-pull screening | **Real** — [RugCheck.xyz](https://rugcheck.xyz) checked before every buy (mint/freeze authority, LP lock, holder risk), plus liquidity/FDV and price-spike heuristics from DexScreener data |
+| Trade-quality ML model | **Off by default** — trains on the bot's own closed-trade history once there's enough of it; see [Machine learning](#machine-learning) |
 | Money | **Simulated** ("paper" mode) by default. A real Solana execution path exists (`--live`) but is off by default and hard-gated — see [Going live](#going-live) |
 
 ### Why the Twitter signal is simulated
@@ -64,8 +66,76 @@ cashtags extracted, engagement-weighted scoring.
   concurrent positions.
 - Exit strategy isn't just "sell at +X%": it does partial take-profit
   (bank half the position, let the rest run), a trailing stop off the peak
-  price, a hard stop-loss, a liquidity-rug emergency exit if the pool
-  drains, and a time-based exit so nothing gets held forever.
+  price, a liquidity-rug emergency exit if the pool drains (both a slower
+  cumulative-decline check and a fast single-interval-drop check), a hard
+  stop-loss, and a time-based exit so nothing gets held forever.
+
+## Rug-pull defenses
+
+Every candidate token that clears the basic hype-score bar goes through
+extra screening before a buy, all configurable under `entry:` in
+`config.yaml`:
+
+- **[RugCheck.xyz](https://rugcheck.xyz)** (free, no key) is queried for the
+  token's actual on-chain state — an un-renounced mint authority (deployer
+  can print unlimited supply), an active freeze authority (deployer can
+  freeze your wallet's tokens), unlocked LP tokens (deployer can pull
+  liquidity instantly), and other named risk flags. Any "danger"-level
+  finding blocks the trade by default (`entry.rug_check.max_danger_flags`).
+- **Fails closed by default** (`entry.rug_check.fail_closed: true`): if the
+  check errors out or the token isn't indexed yet, the trade is skipped
+  rather than assumed safe. This means if RugCheck.xyz is ever unreachable,
+  the bot will simply stop buying anything until it's reachable again —
+  check the logs for `rug check unavailable` if entries seem to have
+  stopped. Set `fail_closed: false` if you'd rather it trade through that.
+- **Liquidity-to-FDV ratio** (`entry.min_liquidity_to_fdv_pct`): skips
+  tokens whose liquidity is a razor-thin sliver of their reported
+  valuation — an easy setup to manipulate or rug.
+- **Price-spike cap** (`entry.max_price_change_5m_pct`): skips tokens that
+  already spiked hard in the last 5 minutes, so the bot isn't chasing the
+  top of a pump.
+- **Sudden liquidity-drop exit** (`exit.sudden_liquidity_drop_pct`): for
+  positions already held, an emergency exit fires if liquidity drops sharply
+  between two consecutive checks — catching an in-progress rug faster than
+  waiting for the cumulative decline-from-entry check to cross its floor.
+
+This integration is unverified against RugCheck's live API from the sandbox
+this was built in (its outbound network is restricted) — the parsing is
+deliberately defensive, but watch the logs the first few times it runs for
+real and tell me if anything about the response shape looks off.
+
+## Machine learning
+
+`memecoin_trader/ml/` adds a small logistic-regression model that predicts,
+from a token's entry-time features (hype score, liquidity, volume, price
+momentum, RugCheck score, etc.), the probability a trade will end up
+profitable. Since a rug pull always shows up as a large loss, a model that
+predicts plain profitability is implicitly learning to avoid rug-like
+patterns too — there's no separate "is this a scam" label needed.
+
+**It starts out as a no-op.** With zero trade history there's nothing to
+learn from, so `entry.ml.enabled` defaults to `false` in `config.yaml`, and
+even when enabled, the engine only uses it if a trained model file actually
+exists — otherwise it's silently skipped. Every buy the bot makes
+automatically saves its entry-time feature vector, so training data
+accumulates on its own just from running the bot normally.
+
+Once you've let it run long enough to close a decent number of trades:
+
+```powershell
+pip install -r requirements-ml.txt   # scikit-learn + joblib, not needed otherwise
+python -m memecoin_trader.cli train
+```
+
+This reads every closed, feature-tagged position, labels it profitable (1)
+or not (0) by its total realized P&L, trains a logistic regression model,
+and saves it to `data/model.joblib`. It refuses to train with fewer than
+`entry.ml.min_training_trades` closed trades (default 30) — there's no
+point fitting a model to noise. Once you have a model you trust, set
+`entry.ml.enabled: true`; the model's predicted confidence
+(`entry.ml.min_confidence`) then becomes an additional gate on top of every
+other filter above, not a replacement for any of them. Re-run `train`
+periodically as more trade history accumulates.
 
 ## Setup (Windows PowerShell)
 
@@ -302,13 +372,14 @@ strategy's position sizing.
 ## Running the tests
 
 ```powershell
-pip install -r requirements.txt
+pip install -r requirements-ml.txt   # includes requirements.txt; needed for the ML model tests
 pytest
 ```
 
 Tests cover the ledger's money math, entry/exit strategy rules, the paper
-executor's slippage/fee model, technical indicators, and one full
-buy-then-exit cycle through the real engine wiring.
+executor's slippage/fee model, technical indicators, the RugCheck client's
+parsing, the ML feature extraction and train/predict/save/load roundtrip,
+and one full buy-then-exit cycle through the real engine wiring.
 
 ## Project layout
 
@@ -324,10 +395,14 @@ memecoin_trader/
     twitter_source.py     real X API v2 adapter (needs TWITTER_BEARER_TOKEN)
   market/
     dexscreener.py        real public market data client
+    rugcheck.py            RugCheck.xyz pre-trade safety client
   analysis/
     indicators.py          SMA, momentum, drawdown, RSI over collected price history
-    entry_strategy.py       buy filters
+    entry_strategy.py       buy filters (liquidity/volume/age, rug check, ML gate)
     exit_strategy.py        stop-loss / take-profit / trailing-stop / time / rug exits
+  ml/
+    features.py             entry-time feature vector (signal + market + rug report)
+    model.py                 logistic-regression trade-quality model (train/predict/save/load)
   portfolio/
     db.py / models.py / ledger.py   SQLite-backed, Decimal-accurate accounting
   execution/
@@ -336,5 +411,6 @@ memecoin_trader/
     live_executor.py       real Solana swaps via Jupiter (gated, experimental)
   dashboard/
     server.py + templates/index.html   local FastAPI dashboard
+scripts/                  Windows Task Scheduler installer/watchdogs (24/7 without a cloud host)
 tests/                    pytest suite
 ```

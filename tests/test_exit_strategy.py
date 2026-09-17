@@ -12,6 +12,7 @@ CONFIG = ExitConfig(
     trailing_stop_pct=0.20,
     max_hold_minutes=240,
     liquidity_rug_fraction=0.4,
+    sudden_liquidity_drop_pct=0.5,
 )
 
 
@@ -106,3 +107,29 @@ def test_liquidity_rug_takes_priority_over_take_profit():
     position = make_position(entry_price="1.0", entry_liquidity="20000")
     decision = evaluate_exit(position, Decimal("2.0"), Decimal("5000"), CONFIG)
     assert decision.reason == "liquidity_rug"
+
+
+def test_sudden_liquidity_drop_triggers_before_entry_relative_floor():
+    # still well above the entry-relative liquidity_rug_fraction floor (40% of 20000 = 8000),
+    # but liquidity just halved between two consecutive checks -- catch it immediately.
+    position = make_position(entry_price="1.0", entry_liquidity="20000")
+    decision = evaluate_exit(
+        position, Decimal("1.0"), Decimal("9000"), CONFIG, previous_liquidity_usd=Decimal("20000")
+    )
+    assert decision is not None
+    assert decision.reason == "liquidity_rug_sudden"
+    assert decision.fraction == Decimal(1)
+
+
+def test_no_sudden_drop_exit_for_gradual_decline():
+    position = make_position(entry_price="1.0", entry_liquidity="20000")
+    decision = evaluate_exit(
+        position, Decimal("1.0"), Decimal("19000"), CONFIG, previous_liquidity_usd=Decimal("20000")
+    )
+    assert decision is None  # only a 5% drop, well under the 50% sudden-drop threshold
+
+
+def test_sudden_drop_ignored_without_a_previous_snapshot():
+    position = make_position(entry_price="1.0", entry_liquidity="20000")
+    decision = evaluate_exit(position, Decimal("1.0"), Decimal("9000"), CONFIG, previous_liquidity_usd=None)
+    assert decision is None  # nothing to compare against yet (first check on this position)

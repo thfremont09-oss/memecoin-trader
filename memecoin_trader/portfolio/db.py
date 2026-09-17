@@ -80,6 +80,12 @@ CREATE TABLE IF NOT EXISTS signals_log (
     acted_on INTEGER NOT NULL DEFAULT 0
 );
 
+CREATE TABLE IF NOT EXISTS trade_features (
+    position_id INTEGER PRIMARY KEY,
+    features_json TEXT NOT NULL,
+    captured_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS equity_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     cash_usd TEXT NOT NULL,
@@ -122,6 +128,7 @@ def reset_db(conn: sqlite3.Connection, starting_balance_usd: Decimal) -> None:
         DELETE FROM price_snapshots;
         DELETE FROM signals_log;
         DELETE FROM equity_history;
+        DELETE FROM trade_features;
         DELETE FROM portfolio_state;
         """
     )

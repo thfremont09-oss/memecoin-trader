@@ -9,10 +9,13 @@ from decimal import Decimal
 
 from memecoin_trader.analysis.entry_strategy import EntryContext, evaluate_entry
 from memecoin_trader.analysis.exit_strategy import evaluate_exit
-from memecoin_trader.config import DB_PATH, Settings
+from memecoin_trader.config import DB_PATH, MODEL_PATH, Settings
 from memecoin_trader.execution.base import Executor
 from memecoin_trader.execution.paper_executor import PaperExecutor
 from memecoin_trader.market.dexscreener import DexScreenerClient
+from memecoin_trader.market.rugcheck import RugCheckClient
+from memecoin_trader.ml.features import extract_features
+from memecoin_trader.ml.model import TradeQualityModel
 from memecoin_trader.portfolio.db import get_connection, init_db
 from memecoin_trader.portfolio.ledger import InsufficientCashError, Ledger
 from memecoin_trader.signals.base import SignalSource
@@ -51,6 +54,8 @@ class TradingEngine:
         market_client: DexScreenerClient,
         signal_source: SignalSource,
         executor: Executor,
+        rug_client: RugCheckClient | None = None,
+        ml_model: TradeQualityModel | None = None,
     ):
         self.settings = settings
         self.conn = conn
@@ -58,6 +63,8 @@ class TradingEngine:
         self.market = market_client
         self.signal_source = signal_source
         self.executor = executor
+        self.rug_client = rug_client or RugCheckClient()
+        self.ml_model = ml_model
         self._last_prices: dict[str, Decimal] = {}
         self._last_signal_poll = 0.0
         self._last_position_check = 0.0
@@ -102,6 +109,32 @@ class TradingEngine:
             if market is not None:
                 self._last_prices[signal.token_address] = market.price_usd
 
+            # Only spend a rug-check call on candidates that already clear the
+            # cheap, local hype-score bar — no point querying a third-party
+            # API for a signal we'd reject anyway.
+            rug_report = None
+            if market is not None and signal.score >= self.settings.entry.mention_score_threshold:
+                rug_report = self.rug_client.get_risk_report(signal.token_address)
+                if rug_report is None and self.settings.entry.rug_check.enabled:
+                    logger.warning(
+                        "rug check unavailable for %s (%s) — %s",
+                        signal.symbol,
+                        signal.token_address,
+                        "skipping buy (fail_closed)" if self.settings.entry.rug_check.fail_closed
+                        else "proceeding without it (fail_closed=false)",
+                    )
+
+            features = extract_features(signal, market, rug_report) if market is not None else None
+
+            ml_confidence = None
+            if (
+                features is not None
+                and self.settings.entry.ml.enabled
+                and self.ml_model is not None
+                and self.ml_model.is_trained
+            ):
+                ml_confidence = self.ml_model.predict_proba(features)
+
             ctx = EntryContext(
                 cash_usd=self.ledger.get_cash_usd(),
                 open_position_count=len(self.ledger.get_open_positions()),
@@ -110,7 +143,9 @@ class TradingEngine:
                     signal.token_address, self.settings.timing.token_cooldown_minutes
                 ),
             )
-            decision = evaluate_entry(signal, market, ctx, self.settings.entry)
+            decision = evaluate_entry(
+                signal, market, ctx, self.settings.entry, rug_report=rug_report, ml_confidence=ml_confidence
+            )
             self.ledger.record_signal(signal, acted_on=decision is not None)
 
             if decision is None:
@@ -125,7 +160,7 @@ class TradingEngine:
             )
             try:
                 fill = self.executor.buy(signal.token_address, decision.amount_usd, market)
-                self.ledger.open_position(
+                position = self.ledger.open_position(
                     token_address=signal.token_address,
                     symbol=market.symbol or signal.symbol,
                     chain_id=self.settings.chain_id,
@@ -134,6 +169,8 @@ class TradingEngine:
                     entry_liquidity_usd=market.liquidity_usd,
                     mode=self.settings.mode,
                 )
+                if features is not None:
+                    self.ledger.save_trade_features(position.id, features)
             except InsufficientCashError as exc:
                 logger.warning("skipped buy for %s: %s", signal.symbol, exc)
             except Exception:
@@ -150,6 +187,7 @@ class TradingEngine:
                 )
                 continue
 
+            previous_liquidity = self.ledger.get_latest_liquidity(position.token_address)
             self._last_prices[position.token_address] = market.price_usd
             self.ledger.record_price_snapshot(
                 position.token_address, market.price_usd, market.liquidity_usd, market.volume_24h_usd
@@ -159,7 +197,11 @@ class TradingEngine:
             position = self.ledger.get_open_position_for_token(position.token_address) or position
 
             decision = evaluate_exit(
-                position, market.price_usd, market.liquidity_usd, self.settings.exit
+                position,
+                market.price_usd,
+                market.liquidity_usd,
+                self.settings.exit,
+                previous_liquidity_usd=previous_liquidity,
             )
             if decision is None:
                 continue
@@ -200,4 +242,10 @@ def create_engine(settings: Settings) -> TradingEngine:
     market_client = DexScreenerClient()
     signal_source = build_signal_source(settings, market_client)
     executor = build_executor(settings)
-    return TradingEngine(settings, conn, market_client, signal_source, executor)
+    rug_client = RugCheckClient()
+
+    ml_model = TradeQualityModel.load(MODEL_PATH) if settings.entry.ml.enabled else None
+    if settings.entry.ml.enabled and ml_model is None:
+        logger.info("ML gate is enabled but no trained model found at %s — gate is a no-op until `memecoin-trader train` runs", MODEL_PATH)
+
+    return TradingEngine(settings, conn, market_client, signal_source, executor, rug_client, ml_model)

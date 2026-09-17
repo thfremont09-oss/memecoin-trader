@@ -140,3 +140,63 @@ def test_price_history_is_ordered_oldest_first(ledger):
     ledger.record_price_snapshot("TOKEN1", Decimal("1.1"), Decimal("20000"), Decimal("50000"))
     history = ledger.get_price_history("TOKEN1")
     assert history == [Decimal("1.0"), Decimal("1.1")]
+
+
+def test_latest_liquidity_tracks_most_recent_snapshot(ledger):
+    assert ledger.get_latest_liquidity("TOKEN1") is None
+    ledger.record_price_snapshot("TOKEN1", Decimal("1.0"), Decimal("20000"), Decimal("50000"))
+    assert ledger.get_latest_liquidity("TOKEN1") == Decimal("20000")
+    ledger.record_price_snapshot("TOKEN1", Decimal("1.0"), Decimal("15000"), Decimal("50000"))
+    assert ledger.get_latest_liquidity("TOKEN1") == Decimal("15000")
+
+
+def test_training_dataset_excludes_open_positions(ledger):
+    position = _open(ledger)
+    ledger.save_trade_features(position.id, {"signal_score": 80.0})
+    assert ledger.get_training_dataset() == []  # still open
+
+
+def test_training_dataset_labels_profitable_close_as_1(ledger):
+    position = _open(ledger, quantity="20", amount="20", fee="0.2")
+    ledger.save_trade_features(position.id, {"signal_score": 80.0})
+    sell_fill = FillResult(
+        price_usd=Decimal("2.0"), quantity=Decimal("20"), amount_usd=Decimal("40"), fee_usd=Decimal("0.4"), tx_id=None
+    )
+    ledger.apply_sell(
+        position=position, fraction=Decimal(1), fill=sell_fill, reason="take_profit_partial",
+        mark_take_profit_taken=True, mode="paper",
+    )
+    dataset = ledger.get_training_dataset()
+    assert len(dataset) == 1
+    features, label = dataset[0]
+    assert label == 1
+    assert features == {"signal_score": 80.0}
+
+
+def test_training_dataset_sums_pnl_across_partial_and_final_sells(ledger):
+    position = _open(ledger, quantity="20", amount="20", fee="0.2")
+    ledger.save_trade_features(position.id, {"signal_score": 60.0})
+
+    # partial take-profit at a gain...
+    partial_fill = FillResult(
+        price_usd=Decimal("2.0"), quantity=Decimal("10"), amount_usd=Decimal("20"), fee_usd=Decimal("0.2"), tx_id=None
+    )
+    ledger.apply_sell(
+        position=position, fraction=Decimal("0.5"), fill=partial_fill, reason="take_profit_partial",
+        mark_take_profit_taken=True, mode="paper",
+    )
+    remaining = ledger.get_open_positions()[0]
+
+    # ...then a big loss on the rest, net negative overall
+    final_fill = FillResult(
+        price_usd=Decimal("0.01"), quantity=Decimal("10"), amount_usd=Decimal("0.1"), fee_usd=Decimal("0.001"), tx_id=None
+    )
+    ledger.apply_sell(
+        position=remaining, fraction=Decimal(1), fill=final_fill, reason="stop_loss",
+        mark_take_profit_taken=True, mode="paper",
+    )
+
+    dataset = ledger.get_training_dataset()
+    assert len(dataset) == 1
+    _, label = dataset[0]
+    assert label == 0  # net loss across both sells despite the first being profitable

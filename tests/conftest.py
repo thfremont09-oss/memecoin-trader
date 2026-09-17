@@ -6,6 +6,7 @@ from decimal import Decimal
 import pytest
 
 from memecoin_trader.market.dexscreener import PairInfo
+from memecoin_trader.market.rugcheck import RugRiskReport
 from memecoin_trader.portfolio.db import get_connection, init_db
 from memecoin_trader.portfolio.ledger import Ledger
 from memecoin_trader.signals.base import SocialSignal
@@ -31,6 +32,8 @@ def make_pair(
     volume_24h_usd: str = "50000",
     age_minutes: float = 60,
     symbol: str = "MEME",
+    fdv_usd: str | None = "1000000",
+    price_change_5m_pct: float = 0.0,
 ) -> PairInfo:
     created_at = datetime.now(timezone.utc) - timedelta(minutes=age_minutes)
     return PairInfo(
@@ -43,14 +46,32 @@ def make_pair(
         price_usd=Decimal(price_usd),
         liquidity_usd=Decimal(liquidity_usd),
         volume_24h_usd=Decimal(volume_24h_usd),
-        price_change_5m_pct=0.0,
+        price_change_5m_pct=price_change_5m_pct,
         price_change_1h_pct=0.0,
         price_change_24h_pct=0.0,
         buys_24h=10,
         sells_24h=5,
         pair_created_at=created_at,
-        fdv_usd=Decimal("1000000"),
+        fdv_usd=Decimal(fdv_usd) if fdv_usd is not None else None,
         url="https://dexscreener.com/solana/pair111",
+    )
+
+
+def make_rug_report(
+    token_address: str = "TOKEN1111111111111111111111111111111111111",
+    score: float = 5.0,
+    danger_flags: tuple[str, ...] = (),
+    warning_flags: tuple[str, ...] = (),
+    lp_locked_pct: float | None = 90.0,
+) -> RugRiskReport:
+    return RugRiskReport(
+        token_address=token_address,
+        score=score,
+        danger_flags=danger_flags,
+        warning_flags=warning_flags,
+        mint_authority_renounced=True,
+        freeze_authority_renounced=True,
+        lp_locked_pct=lp_locked_pct,
     )
 
 

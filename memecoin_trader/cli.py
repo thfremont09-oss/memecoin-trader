@@ -5,7 +5,7 @@ import logging
 import sys
 from decimal import Decimal
 
-from memecoin_trader.config import DB_PATH, load_settings
+from memecoin_trader.config import DB_PATH, MODEL_PATH, load_settings
 from memecoin_trader.logging_setup import setup_logging
 from memecoin_trader.portfolio.db import get_connection, init_db, reset_db
 from memecoin_trader.portfolio.ledger import Ledger
@@ -94,6 +94,46 @@ def cmd_dashboard(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_train(args: argparse.Namespace) -> int:
+    from memecoin_trader.ml.model import TradeQualityModel
+
+    settings = load_settings()
+    conn = get_connection(DB_PATH)
+    init_db(conn, Decimal(str(settings.starting_balance_usd)))
+    ledger = Ledger(conn)
+
+    dataset = ledger.get_training_dataset()
+    min_required = settings.entry.ml.min_training_trades
+    if len(dataset) < min_required:
+        print(
+            f"Only {len(dataset)} closed, feature-tagged trade(s) so far — "
+            f"need at least {min_required} (entry.ml.min_training_trades in config.yaml) before training."
+        )
+        print("Keep the bot running; features are captured automatically on every buy.")
+        return 1
+
+    features, labels = zip(*dataset)
+    profitable = sum(labels)
+    print(f"Training on {len(dataset)} closed trades ({profitable} profitable, {len(dataset) - profitable} not)...")
+
+    model = TradeQualityModel()
+    try:
+        stats = model.train(list(features), list(labels))
+    except RuntimeError as exc:
+        print(f"Error: {exc}")
+        return 1
+    except ValueError as exc:
+        print(f"Can't train yet: {exc}")
+        return 1
+
+    model.save(MODEL_PATH)
+    print(f"Model saved to {MODEL_PATH}")
+    print(f"Accuracy on held-out data: {stats['accuracy']:.1%} (n={stats['n_samples']})")
+    if not settings.entry.ml.enabled:
+        print("Note: entry.ml.enabled is false in config.yaml — set it to true to actually use this model.")
+    return 0
+
+
 def cmd_reset(args: argparse.Namespace) -> int:
     settings = load_settings()
     if not args.yes:
@@ -131,6 +171,11 @@ def build_parser() -> argparse.ArgumentParser:
     p_reset = sub.add_parser("reset", help="wipe simulation data and restart from the starting balance")
     p_reset.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
     p_reset.set_defaults(func=cmd_reset)
+
+    p_train = sub.add_parser(
+        "train", help="train the ML trade-quality model from the bot's own closed-trade history"
+    )
+    p_train.set_defaults(func=cmd_train)
 
     return parser
 
