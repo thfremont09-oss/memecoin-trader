@@ -89,7 +89,8 @@ def cmd_dashboard(args: argparse.Namespace) -> int:
     import uvicorn
 
     setup_logging()
-    uvicorn.run("memecoin_trader.dashboard.server:app", host=args.host, port=args.port, log_level="warning")
+    print(f"Starting dashboard at http://{args.host}:{args.port} (Ctrl+C to stop)")
+    uvicorn.run("memecoin_trader.dashboard.server:app", host=args.host, port=args.port, log_level="info")
     return 0
 
 
