@@ -8,6 +8,15 @@
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 
+$isElevated = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $isElevated) {
+    Write-Warning "This PowerShell window is not running as Administrator."
+    Write-Warning "Register-ScheduledTask commonly fails with 'Access is denied' without it."
+    Write-Warning "If the steps below fail, close this window, right-click PowerShell, choose"
+    Write-Warning "'Run as Administrator', and re-run this script from there instead."
+    Write-Host ""
+}
+
 function Register-WatchdogTask {
     param(
         [string]$TaskName,
@@ -26,13 +35,15 @@ function Register-WatchdogTask {
         -MultipleInstances IgnoreNew
 
     if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
-        Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
+        Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction Stop
     }
+
     Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Settings $settings `
         -Description "Memecoin Trader: keeps $TaskName running continuously (installed by install_scheduled_tasks.ps1)." `
-        | Out-Null
-    Start-ScheduledTask -TaskName $TaskName
+        -ErrorAction Stop | Out-Null
+    Start-ScheduledTask -TaskName $TaskName -ErrorAction Stop
     Write-Host "Registered and started task: $TaskName"
+    return $true
 }
 
 $venvPython = Join-Path $repoRoot ".venv\Scripts\python.exe"
@@ -41,8 +52,26 @@ if (-not (Test-Path $venvPython)) {
     exit 1
 }
 
-Register-WatchdogTask -TaskName "MemecoinTraderEngine" -ScriptPath (Join-Path $repoRoot "scripts\run_engine_forever.ps1")
-Register-WatchdogTask -TaskName "MemecoinTraderDashboard" -ScriptPath (Join-Path $repoRoot "scripts\run_dashboard_forever.ps1")
+$allSucceeded = $true
+try {
+    Register-WatchdogTask -TaskName "MemecoinTraderEngine" -ScriptPath (Join-Path $repoRoot "scripts\run_engine_forever.ps1") | Out-Null
+} catch {
+    Write-Error "Failed to register MemecoinTraderEngine: $($_.Exception.Message)"
+    $allSucceeded = $false
+}
+try {
+    Register-WatchdogTask -TaskName "MemecoinTraderDashboard" -ScriptPath (Join-Path $repoRoot "scripts\run_dashboard_forever.ps1") | Out-Null
+} catch {
+    Write-Error "Failed to register MemecoinTraderDashboard: $($_.Exception.Message)"
+    $allSucceeded = $false
+}
+
+if (-not $allSucceeded) {
+    Write-Host ""
+    Write-Host "One or both tasks failed to register (see errors above) -- nothing is" -ForegroundColor Red
+    Write-Host "running yet. Re-run this script from an Administrator PowerShell window." -ForegroundColor Red
+    exit 1
+}
 
 Write-Host ""
 Write-Host "Done. Both tasks are running now and will start automatically every time"
