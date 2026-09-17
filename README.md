@@ -113,60 +113,84 @@ on. This repo is set up to deploy as one small Fly.io app that runs both the
 trading loop and the dashboard, backed by a persistent volume so trade
 history survives restarts/deploys.
 
-All commands below are PowerShell, run from the repo folder.
+There are two ways to do this. If you connected your Fly.io account to
+GitHub through Fly's dashboard ("Launch from GitHub"), **you don't need to
+clone this repo at all** — Fly builds and deploys straight from GitHub every
+time this branch is pushed. You only need the `fly` CLI for the one-time
+setup below (volume + secrets), and those commands work from *any* folder —
+you never need `cd` into a local copy of the repo, since they target your
+app by name (`--app`), not by local files.
 
-1. **Install the Fly CLI and log in** (one-time):
+**One-time setup (GitHub-connected app), from any PowerShell window:**
+
+1. **Install the Fly CLI and log in**, if you haven't:
    ```powershell
    pwsh -Command "iwr https://fly.io/install.ps1 -useb | iex"
    fly auth login
    ```
-   If `fly` isn't recognized afterward, close and reopen your PowerShell
-   window (the installer updates your PATH, which existing windows don't
-   pick up automatically).
+   If `fly` isn't recognized right after installing, close and reopen
+   PowerShell (the installer updates PATH, which open windows don't see).
 
-2. **Pick a unique app name** and put it in `fly.toml` (the `app =` line —
-   Fly app names are global, so `memecoin-trader` itself is almost certainly
-   taken):
+2. **Confirm the app name.** Open the Fly dashboard → your app → the name
+   shown at the top must exactly match `app = "..."` in this repo's
+   `fly.toml`. It's currently set to `claude-memecoin-trader` — if your
+   dashboard shows something different, tell me and I'll push the fix
+   (I already have write access to this repo, so you don't need to edit
+   `fly.toml` by hand).
+
+3. **Create the persistent volume** for the trade database (needed once;
+   the Fly web dashboard doesn't do this, only the CLI does):
    ```powershell
-   (Get-Content fly.toml) -replace 'memecoin-trader-CHANGE-ME', 'your-unique-name-here' | Set-Content fly.toml
+   fly volumes create memecoin_data --app claude-memecoin-trader --region iad --size 1
    ```
+   (`--app` must match `fly.toml`'s app name; `--region` must match
+   `primary_region` in `fly.toml`, which is `iad`.)
 
-3. **Create the app and a persistent volume** for the trade database (1GB is
-   overkill but Fly's minimum-ish and effectively free on the hobby plan):
+4. **Set secrets.** None are required to run in paper mode, but set
+   dashboard credentials since the dashboard will be reachable at a public
+   `https://claude-memecoin-trader.fly.dev` URL:
    ```powershell
-   fly apps create --name your-unique-name-here
-   fly volumes create memecoin_data --app your-unique-name-here --region iad --size 1
-   ```
-   (Match `--region` to `primary_region` in `fly.toml`, and match the volume
-   name to `[[mounts]] source` in `fly.toml` if you change either.)
-
-4. **Set secrets** (anything from `.env` you actually want to use — none are
-   required to run in paper mode). At minimum, set dashboard credentials
-   since the dashboard will be reachable at a public `https://*.fly.dev` URL:
-   ```powershell
-   fly secrets set DASHBOARD_USERNAME=youruser DASHBOARD_PASSWORD='a-real-password' --app your-unique-name-here
+   fly secrets set DASHBOARD_USERNAME=youruser DASHBOARD_PASSWORD='a-real-password' --app claude-memecoin-trader
    # optional, once you have it:
-   fly secrets set TWITTER_BEARER_TOKEN=xxxxx --app your-unique-name-here
+   fly secrets set TWITTER_BEARER_TOKEN=xxxxx --app claude-memecoin-trader
    ```
+   Setting a secret triggers Fly to redeploy the app automatically.
 
-5. **Deploy**:
-   ```powershell
-   fly deploy --app your-unique-name-here
-   ```
+5. **If nothing has deployed yet**, trigger the first deploy from the Fly
+   dashboard (an app connected to GitHub usually has a "Deploy" button on
+   its overview page) rather than running `fly deploy` locally — there's no
+   local checkout for it to deploy from.
 
-6. **Check on it, from anywhere, forever**:
-   ```powershell
-   fly open --app your-unique-name-here
-   fly logs --app your-unique-name-here
-   fly ssh console --app your-unique-name-here -C "python -m memecoin_trader.cli status"
-   ```
-   Bookmark the `https://your-unique-name-here.fly.dev` URL (log in with the
-   `DASHBOARD_USERNAME`/`DASHBOARD_PASSWORD` you set) to check balance and
-   trades from your phone any time.
+**Check on it, from anywhere, forever** (no local clone needed for any of these):
+```powershell
+fly open --app claude-memecoin-trader
+fly logs --app claude-memecoin-trader
+fly ssh console --app claude-memecoin-trader -C "python -m memecoin_trader.cli status"
+```
+Bookmark `https://claude-memecoin-trader.fly.dev` (log in with the
+`DASHBOARD_USERNAME`/`DASHBOARD_PASSWORD` you set) to check balance and
+trades from your phone any time.
 
-**Updating the deployed bot later:** change config/code locally, then just
-run `fly deploy --app your-unique-name-here` again — the volume (and
+**Updating the deployed bot later:** just push to `claude/cool-tesla-ygjulp`
+on GitHub (or have me do it) — Fly redeploys automatically. The volume (and
 therefore all trade history) persists across deploys.
+
+<details>
+<summary>Alternative: deploying purely from a local clone (no GitHub connection)</summary>
+
+If you'd rather not use Fly's GitHub integration, clone the repo and deploy
+directly from your machine instead:
+```powershell
+git clone https://github.com/thfremont09-oss/memecoin-trader.git
+cd memecoin-trader
+fly apps create --name claude-memecoin-trader
+fly volumes create memecoin_data --app claude-memecoin-trader --region iad --size 1
+fly secrets set DASHBOARD_USERNAME=youruser DASHBOARD_PASSWORD='a-real-password' --app claude-memecoin-trader
+fly deploy --app claude-memecoin-trader
+```
+Re-run `fly deploy --app claude-memecoin-trader` from inside that folder
+(after `git pull`) any time you want to push a new version.
+</details>
 
 **Cost:** a single `shared-cpu-1x`/512MB machine plus a 1GB volume fits
 comfortably in Fly's free hobby allowance as of this writing; check Fly's

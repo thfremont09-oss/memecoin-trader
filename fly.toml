@@ -1,6 +1,6 @@
-# Fly.io app config. `app` must be globally unique across all of Fly — change
-# it before deploying (see README "Deploying to Fly.io (24/7)").
-app = "memecoin-trader-CHANGE-ME"
+# Fly.io app config. `app` must exactly match the app name shown in the
+# Fly.io dashboard for this GitHub-connected app.
+app = "claude-memecoin-trader"
 primary_region = "iad"
 
 [build]
