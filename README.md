@@ -99,6 +99,74 @@ run `memecoin-trader run` / `status` / `dashboard` / `reset`.)
 All state lives in `data/trader.db` (SQLite) and `data/trader.log`. Both are
 gitignored.
 
+## Deploying to Fly.io (24/7)
+
+GitHub only holds the code — nothing runs there. To have the bot trade and
+be checkable around the clock, it needs to run on a machine that's always
+on. This repo is set up to deploy as one small Fly.io app that runs both the
+trading loop and the dashboard, backed by a persistent volume so trade
+history survives restarts/deploys.
+
+1. **Install the Fly CLI and log in** (one-time):
+   ```bash
+   curl -L https://fly.io/install.sh | sh
+   fly auth login
+   ```
+
+2. **Pick a unique app name** and put it in `fly.toml` (the `app =` line —
+   Fly app names are global, so `memecoin-trader` itself is almost certainly
+   taken):
+   ```bash
+   sed -i '' 's/memecoin-trader-CHANGE-ME/your-unique-name-here/' fly.toml   # macOS
+   # sed -i 's/memecoin-trader-CHANGE-ME/your-unique-name-here/' fly.toml   # Linux
+   ```
+
+3. **Create the app and a persistent volume** for the trade database (1GB is
+   overkill but Fly's minimum-ish and effectively free on the hobby plan):
+   ```bash
+   fly apps create --name your-unique-name-here
+   fly volumes create memecoin_data --app your-unique-name-here --region iad --size 1
+   ```
+   (Match `--region` to `primary_region` in `fly.toml`, and match the volume
+   name to `[[mounts]] source` in `fly.toml` if you change either.)
+
+4. **Set secrets** (anything from `.env` you actually want to use — none are
+   required to run in paper mode). At minimum, set dashboard credentials
+   since the dashboard will be reachable at a public `https://*.fly.dev` URL:
+   ```bash
+   fly secrets set DASHBOARD_USERNAME=youruser DASHBOARD_PASSWORD='a-real-password' --app your-unique-name-here
+   # optional, once you have it:
+   fly secrets set TWITTER_BEARER_TOKEN=xxxxx --app your-unique-name-here
+   ```
+
+5. **Deploy**:
+   ```bash
+   fly deploy --app your-unique-name-here
+   ```
+
+6. **Check on it, from anywhere, forever**:
+   ```bash
+   fly open --app your-unique-name-here        # opens the dashboard in your browser
+   fly logs --app your-unique-name-here         # live trading logs
+   fly ssh console --app your-unique-name-here -C "python -m memecoin_trader.cli status"
+   ```
+   Bookmark the `https://your-unique-name-here.fly.dev` URL (log in with the
+   `DASHBOARD_USERNAME`/`DASHBOARD_PASSWORD` you set) to check balance and
+   trades from your phone any time.
+
+**Updating the deployed bot later:** change config/code locally, then just
+run `fly deploy --app your-unique-name-here` again — the volume (and
+therefore all trade history) persists across deploys.
+
+**Cost:** a single `shared-cpu-1x`/512MB machine plus a 1GB volume fits
+comfortably in Fly's free hobby allowance as of this writing; check Fly's
+current pricing page if that matters to you, since it does change.
+
+**Note on `auto_stop_machines = false`** in `fly.toml`: this is required and
+intentional. Fly normally scales web apps to zero when idle to save cost,
+but this app has a background trading loop that needs to keep running even
+when nobody's looking at the dashboard.
+
 ## Configuring the strategy
 
 Everything that isn't a secret lives in `config.yaml`: how often it polls,

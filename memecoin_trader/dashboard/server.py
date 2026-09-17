@@ -5,11 +5,15 @@ separate process from `memecoin-trader run` and always show live state.
 """
 from __future__ import annotations
 
+import os
+import secrets as secrets_module
 from decimal import Decimal
 from pathlib import Path
+from typing import Annotated
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.responses import HTMLResponse
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.templating import Jinja2Templates
 from starlette.requests import Request
 
@@ -20,6 +24,28 @@ from memecoin_trader.reporting import build_summary
 
 app = FastAPI(title="Memecoin Trader Dashboard")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+_security = HTTPBasic(auto_error=False)
+
+
+def require_auth(credentials: Annotated[HTTPBasicCredentials | None, Depends(_security)] = None) -> None:
+    """Gate the dashboard with HTTP Basic Auth if DASHBOARD_USERNAME/PASSWORD are set.
+
+    Left wide open if neither is configured (fine for localhost use), but you
+    should set both before exposing this on a public URL (e.g. a Fly.io app).
+    """
+    username = os.environ.get("DASHBOARD_USERNAME")
+    password = os.environ.get("DASHBOARD_PASSWORD")
+    if not username or not password:
+        return
+    valid = credentials is not None and secrets_module.compare_digest(
+        credentials.username, username
+    ) and secrets_module.compare_digest(credentials.password, password)
+    if not valid:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Unauthorized",
+            headers={"WWW-Authenticate": "Basic"},
+        )
 
 
 def _ledger() -> Ledger:
@@ -30,7 +56,7 @@ def _ledger() -> Ledger:
 
 
 @app.get("/", response_class=HTMLResponse)
-def index(request: Request):
+def index(request: Request, _auth: None = Depends(require_auth)):
     settings = load_settings()
     summary = build_summary(_ledger())
     return templates.TemplateResponse(
@@ -39,5 +65,5 @@ def index(request: Request):
 
 
 @app.get("/api/summary")
-def api_summary():
+def api_summary(_auth: None = Depends(require_auth)):
     return build_summary(_ledger())

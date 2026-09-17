@@ -11,7 +11,9 @@ from dotenv import load_dotenv
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config.yaml"
-DATA_DIR = PROJECT_ROOT / "data"
+# Overridable so a deployment can point this at a mounted persistent volume
+# (e.g. Fly.io's /data) instead of the repo checkout.
+DATA_DIR = Path(os.environ.get("MEMECOIN_DATA_DIR", str(PROJECT_ROOT / "data")))
 DB_PATH = DATA_DIR / "trader.db"
 LOG_PATH = DATA_DIR / "trader.log"
 

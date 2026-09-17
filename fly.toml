@@ -1,0 +1,27 @@
+# Fly.io app config. `app` must be globally unique across all of Fly — change
+# it before deploying (see README "Deploying to Fly.io (24/7)").
+app = "memecoin-trader-CHANGE-ME"
+primary_region = "iad"
+
+[build]
+
+[env]
+  MEMECOIN_DATA_DIR = "/data"
+  DASHBOARD_PORT = "8787"
+
+[[mounts]]
+  source = "memecoin_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8787
+  force_https = true
+  # Both false/1: this app runs a 24/7 background trading loop, not just a
+  # web server, so it must never be scaled to zero for lack of HTTP traffic.
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
