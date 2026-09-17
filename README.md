@@ -71,10 +71,14 @@ cashtags extracted, engagement-weighted scoring.
 
 ```powershell
 python -m venv .venv
-.venv\Scripts\Activate.ps1
+.\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 Copy-Item .env.example .env   # optional — works fine with everything blank
 ```
+
+(The leading `.\` on the activate line matters — PowerShell won't run a
+relative path without it and gives a confusing "module could not be loaded"
+error instead.)
 
 If `Activate.ps1` is blocked by your execution policy, run PowerShell as
 Administrator once and allow local scripts:
