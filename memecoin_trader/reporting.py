@@ -64,6 +64,7 @@ def build_summary(ledger: Ledger) -> dict:
     ]
 
     return {
+        "trading_enabled": state.trading_enabled,
         "starting_balance_usd": float(state.starting_balance_usd),
         "cash_usd": float(state.cash_usd),
         "positions_value_usd": float(positions_value),

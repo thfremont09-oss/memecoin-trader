@@ -80,10 +80,23 @@ class Ledger:
             realized_pnl_usd=Decimal(row["realized_pnl_usd"]),
             starting_balance_usd=Decimal(row["starting_balance_usd"]),
             updated_at=_parse_dt(row["updated_at"]),
+            trading_enabled=bool(row["trading_enabled"]),
         )
 
     def get_cash_usd(self) -> Decimal:
         return self.get_portfolio_state().cash_usd
+
+    def is_trading_enabled(self) -> bool:
+        return self.get_portfolio_state().trading_enabled
+
+    def set_trading_enabled(self, enabled: bool) -> None:
+        """Toggled by the dashboard's Go offline/Go online buttons (and the
+        matching CLI commands). The engine checks this every tick — going
+        offline stops new buys but keeps protecting any open position."""
+        self._conn.execute(
+            "UPDATE portfolio_state SET trading_enabled = ?, updated_at = ? WHERE id = 1",
+            (1 if enabled else 0, _now_iso()),
+        )
 
     # ------------------------------------------------------------ positions
 

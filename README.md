@@ -169,7 +169,16 @@ python -m memecoin_trader.cli status
 # open positions, trade history) at http://127.0.0.1:8787
 python -m memecoin_trader.cli dashboard
 
-# Sell everything right now (e.g. you're about to be away and want to be in cash)
+# Sell one position right now
+python -m memecoin_trader.cli sell <token_address>
+
+# Sell everything and stop the engine from opening new positions
+python -m memecoin_trader.cli offline
+
+# Let it start trading again
+python -m memecoin_trader.cli online
+
+# Sell everything right now, but keep looking for new trades (no offline switch)
 python -m memecoin_trader.cli liquidate
 
 # Wipe the simulation and start over from $100
@@ -177,22 +186,28 @@ python -m memecoin_trader.cli reset
 ```
 
 (If you installed the package with `pip install -e .`, you can also just
-run `memecoin-trader run` / `status` / `dashboard` / `liquidate` / `reset`.)
+run `memecoin-trader run` / `status` / `dashboard` / `sell` / `offline` /
+`online` / `liquidate` / `reset`.)
 
-**About `liquidate`:** it's a deliberate, on-demand action you run yourself
-— it is *not* triggered automatically when your PC shuts down or the
-Scheduled Tasks stop. That's a real Windows limitation, not a missing
-feature: stopping a scheduled task (or shutting the PC down) kills the
-process outright, with no reliable way for it to run "sell everything" code
-in that instant. Run `liquidate` yourself before you know you're about to go
-properly offline (travel, etc.) if you want to be in cash for that window.
-It is also never called by `update.ps1` or anything else automatically —
-only ever by you, on purpose.
+**About `offline`/`online`:** these are the same actions as the dashboard's
+"Go offline"/"Go online" buttons below. Going offline sells everything and
+flips a switch the engine checks every cycle to stop opening new
+positions — but it's a software switch, not a process kill: the engine
+keeps running so it can still protect any position that couldn't be sold
+(stop-loss, rug exits) and so `online` can flip it back. It is *not*
+triggered automatically when your PC shuts down or the Scheduled Tasks
+stop — that's a real Windows limitation, not a missing feature: stopping a
+scheduled task (or shutting the PC down) kills the process outright, with
+no reliable way to run code in that instant. Run `offline` yourself before
+you know you're about to go properly offline (travel, etc.). It is also
+never called by `update.ps1` or anything else automatically — only ever by
+you, on purpose.
 
-There's also a **"Sell everything now" button** on the dashboard itself
-(top right) that does the same thing — click it, confirm the browser
-prompt, and it sells every open position at the current market price. Same
-rules apply: it's a manual action for you to trigger, never automatic.
+**On the dashboard** (top right): a status badge shows **online**/**offline**,
+next to a **"Go offline (sell all)"** button and a **"Go online"** button —
+whichever matches the current state is grayed out. Each row in the open
+positions table also has its own **Sell** button, for closing out one
+position without touching the rest or the online/offline switch.
 
 All state lives in `data/trader.db` (SQLite) and `data/trader.log`. Both are
 gitignored.

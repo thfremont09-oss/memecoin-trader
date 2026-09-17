@@ -30,19 +30,31 @@
     flex-wrap: wrap; gap: 12px; margin-bottom: 4px;
   }
   .subtitle { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
-  .btn-danger {
-    background: var(--red); color: #fff; border: none; border-radius: 8px;
-    padding: 10px 16px; font-size: 13px; font-weight: 600; cursor: pointer;
-    white-space: nowrap;
+  .btn-danger, .btn-success, .btn-sell {
+    border: none; border-radius: 8px; font-weight: 600; cursor: pointer; white-space: nowrap;
   }
-  .btn-danger:hover { filter: brightness(1.1); }
-  .btn-danger:disabled { opacity: 0.6; cursor: default; }
+  .btn-danger, .btn-success {
+    padding: 10px 16px; font-size: 13px;
+  }
+  .btn-danger { background: var(--red); color: #fff; }
+  .btn-success { background: var(--green); color: #06281c; }
+  .btn-danger:hover, .btn-success:hover { filter: brightness(1.1); }
+  .btn-danger:disabled, .btn-success:disabled { opacity: 0.4; cursor: default; filter: none; }
+  .btn-sell {
+    background: transparent; color: var(--red); border: 1px solid var(--red);
+    padding: 4px 10px; font-size: 12px; border-radius: 6px;
+  }
+  .btn-sell:hover { background: rgba(239, 91, 91, 0.12); }
+  .btn-sell:disabled { opacity: 0.4; cursor: default; background: transparent; }
+  .button-row { display: flex; gap: 8px; align-items: center; }
   .badge {
     display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px;
     font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
   }
   .badge.paper { background: #1f2b3a; color: #6fb3ff; }
   .badge.live { background: #3a1f1f; color: var(--red); }
+  .badge.online { background: #16301f; color: var(--green); }
+  .badge.offline { background: #332617; color: #e0a95a; }
   .cards {
     display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     gap: 12px; margin-bottom: 24px;
@@ -69,8 +81,17 @@
 </head>
 <body>
   <div class="header-row">
-    <h1>Memecoin Trader <span class="badge {{ mode }}">{{ mode }}</span></h1>
-    <button id="liquidateBtn" class="btn-danger" onclick="liquidateAll()">Sell everything now</button>
+    <h1>
+      Memecoin Trader
+      <span class="badge {{ mode }}">{{ mode }}</span>
+      <span class="badge {{ 'online' if summary.trading_enabled else 'offline' }}">
+        {{ 'online' if summary.trading_enabled else 'offline' }}
+      </span>
+    </h1>
+    <div class="button-row">
+      <button id="offlineBtn" class="btn-danger" onclick="goOffline()" {{ 'disabled' if not summary.trading_enabled else '' }}>Go offline (sell all)</button>
+      <button id="onlineBtn" class="btn-success" onclick="goOnline()" {{ 'disabled' if summary.trading_enabled else '' }}>Go online</button>
+    </div>
   </div>
   <div class="subtitle">Simulated portfolio starting from ${{ "%.2f"|format(summary.starting_balance_usd) }} · auto-refreshes every 15s</div>
 
@@ -110,7 +131,7 @@
     <h2>Open positions ({{ summary.open_positions|length }})</h2>
     {% if summary.open_positions %}
     <table>
-      <tr><th>Symbol</th><th>Qty</th><th>Entry</th><th>Now</th><th>Value</th><th>P&amp;L</th><th>Opened</th><th>Source</th></tr>
+      <tr><th>Symbol</th><th>Qty</th><th>Entry</th><th>Now</th><th>Value</th><th>P&amp;L</th><th>Opened</th><th>Source</th><th></th></tr>
       {% for p in summary.open_positions %}
       <tr>
         <td>{{ p.symbol }}</td>
@@ -123,6 +144,7 @@
         </td>
         <td>{{ p.opened_at[:16] }}</td>
         <td>{{ p.signal_source }} ({{ "%.0f"|format(p.signal_score) }})</td>
+        <td><button class="btn-sell" data-token="{{ p.token_address }}" data-symbol="{{ p.symbol }}">Sell</button></td>
       </tr>
       {% endfor %}
     </table>
@@ -185,15 +207,10 @@
 
   setTimeout(() => location.reload(), 15000);
 
-  async function liquidateAll() {
-    if (!confirm('Sell ALL open positions right now at current market price? This cannot be undone.')) {
-      return;
-    }
-    const btn = document.getElementById('liquidateBtn');
-    btn.disabled = true;
-    btn.textContent = 'Selling...';
+  async function postAction(url, btn, busyText, idleText) {
+    if (btn) { btn.disabled = true; btn.textContent = busyText; }
     try {
-      const resp = await fetch('/api/liquidate', { method: 'POST' });
+      const resp = await fetch(url, { method: 'POST' });
       if (resp.status === 401) {
         alert('Unauthorized — refresh the page and log in again.');
         return;
@@ -203,10 +220,33 @@
       location.reload();
     } catch (err) {
       alert('Request failed: ' + err);
-      btn.disabled = false;
-      btn.textContent = 'Sell everything now';
+      if (btn) { btn.disabled = false; btn.textContent = idleText; }
     }
   }
+
+  function goOffline() {
+    if (!confirm('Sell ALL open positions right now and stop the bot from making new trades? This cannot be undone.')) {
+      return;
+    }
+    postAction('/api/offline', document.getElementById('offlineBtn'), 'Going offline...', 'Go offline (sell all)');
+  }
+
+  function goOnline() {
+    postAction('/api/online', document.getElementById('onlineBtn'), 'Going online...', 'Go online');
+  }
+
+  // Delegated via data-attributes (never interpolating token/symbol into a JS
+  // string server-side) since both come from external market data.
+  document.querySelectorAll('.btn-sell').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const symbol = btn.dataset.symbol;
+      const token = btn.dataset.token;
+      if (!confirm(`Sell your ${symbol} position right now at current market price?`)) {
+        return;
+      }
+      postAction('/api/sell/' + encodeURIComponent(token), btn, 'Selling...', 'Sell');
+    });
+  });
 </script>
 </body>
 </html>

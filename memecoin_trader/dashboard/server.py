@@ -69,14 +69,16 @@ def api_summary(_auth: None = Depends(require_auth)):
     return build_summary(_ledger())
 
 
-@app.post("/api/liquidate")
-def api_liquidate(_auth: None = Depends(require_auth)):
-    """Sells every open position right now, at current market price.
+@app.post("/api/offline")
+def api_offline(_auth: None = Depends(require_auth)):
+    """Sells everything, then flips the engine's trading_enabled flag off.
 
     Builds its own engine instance rather than reaching into a running one —
     the dashboard and the trading engine are separate processes (separate
     Scheduled Tasks), so there is no shared in-memory engine to call into.
     Safe to do: both processes already share the same SQLite file (WAL mode).
+    Going offline stops new buys; the actual engine process keeps running and
+    still protects any position that couldn't be sold below.
     """
     from memecoin_trader.engine import create_engine
 
@@ -84,12 +86,38 @@ def api_liquidate(_auth: None = Depends(require_auth)):
     engine = create_engine(settings)
 
     total = len(engine.ledger.get_open_positions())
-    if total == 0:
-        return {"closed": 0, "total": 0, "message": "No open positions."}
+    closed = engine.liquidate_all() if total else 0
+    engine.ledger.set_trading_enabled(False)
 
-    closed = engine.liquidate_all()
-    if closed == total:
-        message = f"Liquidated all {closed} position(s)."
+    if total == 0:
+        message = "Offline. No open positions to sell."
+    elif closed == total:
+        message = f"Offline. Sold all {closed} position(s)."
     else:
-        message = f"Liquidated {closed}/{total} position(s) — the rest had no market data available; try again shortly."
-    return {"closed": closed, "total": total, "message": message}
+        message = f"Offline. Sold {closed}/{total} position(s) — the rest had no market data available."
+    return {"trading_enabled": False, "closed": closed, "total": total, "message": message}
+
+
+@app.post("/api/online")
+def api_online(_auth: None = Depends(require_auth)):
+    _ledger().set_trading_enabled(True)
+    return {
+        "trading_enabled": True,
+        "message": "Online. The engine will start looking for new trades again on its next check.",
+    }
+
+
+@app.post("/api/sell/{token_address}")
+def api_sell_one(token_address: str, _auth: None = Depends(require_auth)):
+    from memecoin_trader.engine import create_engine
+
+    settings = load_settings()
+    engine = create_engine(settings)
+
+    position = engine.ledger.get_open_position_for_token(token_address)
+    if position is None:
+        return {"sold": False, "message": "That position isn't open anymore."}
+
+    sold = engine.liquidate_position(token_address)
+    message = "Sold." if sold else "Couldn't sell — no market data available right now. Try again shortly."
+    return {"sold": sold, "message": message}

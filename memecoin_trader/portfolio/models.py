@@ -57,3 +57,4 @@ class PortfolioState:
     realized_pnl_usd: Decimal
     starting_balance_usd: Decimal
     updated_at: datetime
+    trading_enabled: bool

@@ -16,7 +16,8 @@ CREATE TABLE IF NOT EXISTS portfolio_state (
     cash_usd TEXT NOT NULL,
     realized_pnl_usd TEXT NOT NULL,
     starting_balance_usd TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    trading_enabled INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS positions (
@@ -106,15 +107,25 @@ def get_connection(db_path: Path) -> sqlite3.Connection:
     return conn
 
 
+def _column_exists(conn: sqlite3.Connection, table: str, column: str) -> bool:
+    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+    return any(row["name"] == column for row in rows)
+
+
 def init_db(conn: sqlite3.Connection, starting_balance_usd: Decimal) -> None:
     conn.executescript(SCHEMA)
+
+    # Migration for DBs created before the online/offline toggle existed.
+    if not _column_exists(conn, "portfolio_state", "trading_enabled"):
+        conn.execute("ALTER TABLE portfolio_state ADD COLUMN trading_enabled INTEGER NOT NULL DEFAULT 1")
+
     row = conn.execute("SELECT 1 FROM portfolio_state WHERE id = 1").fetchone()
     if row is None:
         from datetime import datetime, timezone
 
         conn.execute(
-            "INSERT INTO portfolio_state (id, cash_usd, realized_pnl_usd, starting_balance_usd, updated_at) "
-            "VALUES (1, ?, '0', ?, ?)",
+            "INSERT INTO portfolio_state (id, cash_usd, realized_pnl_usd, starting_balance_usd, updated_at, trading_enabled) "
+            "VALUES (1, ?, '0', ?, ?, 1)",
             (str(starting_balance_usd), str(starting_balance_usd), datetime.now(timezone.utc).isoformat()),
         )
 

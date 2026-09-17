@@ -173,6 +173,74 @@ def cmd_liquidate(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_sell(args: argparse.Namespace) -> int:
+    """Sells one open position right now, at current market price."""
+    from memecoin_trader.engine import create_engine
+
+    setup_logging()
+    settings = load_settings()
+    engine = create_engine(settings)
+
+    position = engine.ledger.get_open_position_for_token(args.token_address)
+    if position is None:
+        print(f"No open position for {args.token_address}.")
+        return 1
+
+    if not args.yes:
+        answer = input(f"Sell {position.symbol} ({args.token_address}) qty={position.quantity} now? Type 'yes': ")
+        if answer.strip().lower() != "yes":
+            print("aborted.")
+            return 1
+
+    if engine.liquidate_position(args.token_address):
+        print(f"Sold {position.symbol}.")
+        return 0
+    print("Couldn't sell — no market data available right now. Try again shortly.")
+    return 1
+
+
+def cmd_offline(args: argparse.Namespace) -> int:
+    """Sells everything, then stops the engine from opening new positions.
+
+    The engine process itself keeps running (so it can still protect any
+    position that couldn't be sold, and so `online` can flip it back) — this
+    is a "stop trading" switch, not a process kill.
+    """
+    from memecoin_trader.engine import create_engine
+
+    setup_logging()
+    settings = load_settings()
+    engine = create_engine(settings)
+
+    open_positions = engine.ledger.get_open_positions()
+    if open_positions:
+        print(f"About to sell {len(open_positions)} open position(s) at current market price:")
+        for p in open_positions:
+            print(f"  {p.symbol} ({p.token_address}) qty={p.quantity}")
+        if not args.yes:
+            answer = input("Type 'yes' to sell all of the above and go offline: ")
+            if answer.strip().lower() != "yes":
+                print("aborted.")
+                return 1
+
+    closed = engine.liquidate_all() if open_positions else 0
+    engine.ledger.set_trading_enabled(False)
+    print(f"Offline. Sold {closed}/{len(open_positions)} position(s). No new trades until `online`.")
+    if closed < len(open_positions):
+        print("Some positions couldn't be sold (see logs) — likely missing market data right now.")
+        return 1
+    return 0
+
+
+def cmd_online(args: argparse.Namespace) -> int:
+    settings = load_settings()
+    conn = get_connection(DB_PATH)
+    init_db(conn, Decimal(str(settings.starting_balance_usd)))
+    Ledger(conn).set_trading_enabled(True)
+    print("Online. The engine will resume looking for new trades on its next check.")
+    return 0
+
+
 def cmd_reset(args: argparse.Namespace) -> int:
     settings = load_settings()
     if not args.yes:
@@ -216,6 +284,20 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_liquidate.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
     p_liquidate.set_defaults(func=cmd_liquidate)
+
+    p_sell = sub.add_parser("sell", help="sell one open position immediately at current market price")
+    p_sell.add_argument("token_address")
+    p_sell.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
+    p_sell.set_defaults(func=cmd_sell)
+
+    p_offline = sub.add_parser(
+        "offline", help="sell everything and stop the engine from opening new positions"
+    )
+    p_offline.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
+    p_offline.set_defaults(func=cmd_offline)
+
+    p_online = sub.add_parser("online", help="let the engine open new positions again")
+    p_online.set_defaults(func=cmd_online)
 
     p_train = sub.add_parser(
         "train", help="train the ML trade-quality model from the bot's own closed-trade history"

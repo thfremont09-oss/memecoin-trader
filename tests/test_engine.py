@@ -173,3 +173,76 @@ def test_liquidate_all_skips_positions_with_no_market_data(conn):
 def test_liquidate_all_is_a_noop_with_no_open_positions(conn):
     engine, signal_source, market = build_engine(conn)
     assert engine.liquidate_all() == 0
+
+
+def test_liquidate_position_sells_just_that_token(conn):
+    engine, signal_source, market = build_engine(conn)
+    token_a = "TOKEN8888888888888888888888888888888888888"
+    token_b = "TOKEN9999999999999999999999999999999999999"
+
+    for token in (token_a, token_b):
+        market.pairs[token] = make_pair(token_address=token, price_usd="1.0")
+        signal_source.queue = [make_signal(token_address=token, score=90)]
+        engine._poll_signals()
+
+    assert engine.liquidate_position(token_a) is True
+
+    remaining = engine.ledger.get_open_positions()
+    assert len(remaining) == 1
+    assert remaining[0].token_address == token_b
+
+    sell_trades = [t for t in engine.ledger.get_recent_trades() if t.side == "sell"]
+    assert len(sell_trades) == 1
+    assert sell_trades[0].reason == "manual_sell"
+
+
+def test_liquidate_position_returns_false_for_unknown_token(conn):
+    engine, signal_source, market = build_engine(conn)
+    assert engine.liquidate_position("NOT_A_REAL_TOKEN") is False
+
+
+def test_trading_enabled_defaults_true_and_can_be_toggled(conn):
+    engine, signal_source, market = build_engine(conn)
+    assert engine.ledger.is_trading_enabled() is True
+
+    engine.ledger.set_trading_enabled(False)
+    assert engine.ledger.is_trading_enabled() is False
+
+    engine.ledger.set_trading_enabled(True)
+    assert engine.ledger.is_trading_enabled() is True
+
+
+def test_tick_skips_new_buys_while_offline_but_still_protects_open_positions(conn):
+    engine, signal_source, market = build_engine(conn)
+    token = "TOKEN0000000000000000000000000000000000001"
+    market.pairs[token] = make_pair(token_address=token, price_usd="1.0")
+
+    engine.ledger.set_trading_enabled(False)
+    queued_signal = make_signal(token_address=token, score=90)
+    signal_source.queue = [queued_signal]
+    engine._last_signal_poll = 0.0
+    engine._last_position_check = 0.0
+    engine._last_equity_snapshot = 0.0
+
+    engine.tick()
+
+    # offline: the queued signal was never even polled, so nothing got bought
+    assert engine.ledger.get_open_positions() == []
+    assert signal_source.queue == [queued_signal]  # poll() never called, signal still queued
+    # but equity is still being tracked while offline
+    assert len(engine.ledger.get_equity_curve()) == 1
+
+
+def test_tick_still_polls_and_buys_when_online(conn):
+    engine, signal_source, market = build_engine(conn)
+    token = "TOKEN0000000000000000000000000000000000002"
+    market.pairs[token] = make_pair(token_address=token, price_usd="1.0")
+
+    signal_source.queue = [make_signal(token_address=token, score=90)]
+    engine._last_signal_poll = 0.0
+    engine._last_position_check = 0.0
+    engine._last_equity_snapshot = 0.0
+
+    engine.tick()
+
+    assert len(engine.ledger.get_open_positions()) == 1
