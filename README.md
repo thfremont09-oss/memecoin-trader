@@ -189,6 +189,11 @@ properly offline (travel, etc.) if you want to be in cash for that window.
 It is also never called by `update.ps1` or anything else automatically —
 only ever by you, on purpose.
 
+There's also a **"Sell everything now" button** on the dashboard itself
+(top right) that does the same thing — click it, confirm the browser
+prompt, and it sells every open position at the current market price. Same
+rules apply: it's a manual action for you to trigger, never automatic.
+
 All state lives in `data/trader.db` (SQLite) and `data/trader.log`. Both are
 gitignored.
 

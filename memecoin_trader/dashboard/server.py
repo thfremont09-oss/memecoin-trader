@@ -67,3 +67,29 @@ def index(request: Request, _auth: None = Depends(require_auth)):
 @app.get("/api/summary")
 def api_summary(_auth: None = Depends(require_auth)):
     return build_summary(_ledger())
+
+
+@app.post("/api/liquidate")
+def api_liquidate(_auth: None = Depends(require_auth)):
+    """Sells every open position right now, at current market price.
+
+    Builds its own engine instance rather than reaching into a running one —
+    the dashboard and the trading engine are separate processes (separate
+    Scheduled Tasks), so there is no shared in-memory engine to call into.
+    Safe to do: both processes already share the same SQLite file (WAL mode).
+    """
+    from memecoin_trader.engine import create_engine
+
+    settings = load_settings()
+    engine = create_engine(settings)
+
+    total = len(engine.ledger.get_open_positions())
+    if total == 0:
+        return {"closed": 0, "total": 0, "message": "No open positions."}
+
+    closed = engine.liquidate_all()
+    if closed == total:
+        message = f"Liquidated all {closed} position(s)."
+    else:
+        message = f"Liquidated {closed}/{total} position(s) — the rest had no market data available; try again shortly."
+    return {"closed": closed, "total": total, "message": message}

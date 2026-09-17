@@ -25,7 +25,18 @@
     padding: 24px;
   }
   h1 { font-size: 20px; margin: 0 0 4px 0; }
+  .header-row {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    flex-wrap: wrap; gap: 12px; margin-bottom: 4px;
+  }
   .subtitle { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
+  .btn-danger {
+    background: var(--red); color: #fff; border: none; border-radius: 8px;
+    padding: 10px 16px; font-size: 13px; font-weight: 600; cursor: pointer;
+    white-space: nowrap;
+  }
+  .btn-danger:hover { filter: brightness(1.1); }
+  .btn-danger:disabled { opacity: 0.6; cursor: default; }
   .badge {
     display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px;
     font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
@@ -57,7 +68,10 @@
 </style>
 </head>
 <body>
-  <h1>Memecoin Trader <span class="badge {{ mode }}">{{ mode }}</span></h1>
+  <div class="header-row">
+    <h1>Memecoin Trader <span class="badge {{ mode }}">{{ mode }}</span></h1>
+    <button id="liquidateBtn" class="btn-danger" onclick="liquidateAll()">Sell everything now</button>
+  </div>
   <div class="subtitle">Simulated portfolio starting from ${{ "%.2f"|format(summary.starting_balance_usd) }} · auto-refreshes every 15s</div>
 
   <div class="cards">
@@ -170,6 +184,29 @@
   });
 
   setTimeout(() => location.reload(), 15000);
+
+  async function liquidateAll() {
+    if (!confirm('Sell ALL open positions right now at current market price? This cannot be undone.')) {
+      return;
+    }
+    const btn = document.getElementById('liquidateBtn');
+    btn.disabled = true;
+    btn.textContent = 'Selling...';
+    try {
+      const resp = await fetch('/api/liquidate', { method: 'POST' });
+      if (resp.status === 401) {
+        alert('Unauthorized — refresh the page and log in again.');
+        return;
+      }
+      const data = await resp.json();
+      alert(data.message);
+      location.reload();
+    } catch (err) {
+      alert('Request failed: ' + err);
+      btn.disabled = false;
+      btn.textContent = 'Sell everything now';
+    }
+  }
 </script>
 </body>
 </html>
