@@ -67,18 +67,24 @@ cashtags extracted, engagement-weighted scoring.
   price, a hard stop-loss, a liquidity-rug emergency exit if the pool
   drains, and a time-based exit so nothing gets held forever.
 
-## Setup
+## Setup (Windows PowerShell)
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
+```powershell
+python -m venv .venv
+.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
-cp .env.example .env   # optional — works fine with everything blank
+Copy-Item .env.example .env   # optional — works fine with everything blank
+```
+
+If `Activate.ps1` is blocked by your execution policy, run PowerShell as
+Administrator once and allow local scripts:
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 ```
 
 ## Usage
 
-```bash
+```powershell
 # Start the trading loop (paper mode, $100 starting balance)
 python -m memecoin_trader.cli run
 
@@ -107,23 +113,27 @@ on. This repo is set up to deploy as one small Fly.io app that runs both the
 trading loop and the dashboard, backed by a persistent volume so trade
 history survives restarts/deploys.
 
+All commands below are PowerShell, run from the repo folder.
+
 1. **Install the Fly CLI and log in** (one-time):
-   ```bash
-   curl -L https://fly.io/install.sh | sh
+   ```powershell
+   pwsh -Command "iwr https://fly.io/install.ps1 -useb | iex"
    fly auth login
    ```
+   If `fly` isn't recognized afterward, close and reopen your PowerShell
+   window (the installer updates your PATH, which existing windows don't
+   pick up automatically).
 
 2. **Pick a unique app name** and put it in `fly.toml` (the `app =` line —
    Fly app names are global, so `memecoin-trader` itself is almost certainly
    taken):
-   ```bash
-   sed -i '' 's/memecoin-trader-CHANGE-ME/your-unique-name-here/' fly.toml   # macOS
-   # sed -i 's/memecoin-trader-CHANGE-ME/your-unique-name-here/' fly.toml   # Linux
+   ```powershell
+   (Get-Content fly.toml) -replace 'memecoin-trader-CHANGE-ME', 'your-unique-name-here' | Set-Content fly.toml
    ```
 
 3. **Create the app and a persistent volume** for the trade database (1GB is
    overkill but Fly's minimum-ish and effectively free on the hobby plan):
-   ```bash
+   ```powershell
    fly apps create --name your-unique-name-here
    fly volumes create memecoin_data --app your-unique-name-here --region iad --size 1
    ```
@@ -133,21 +143,21 @@ history survives restarts/deploys.
 4. **Set secrets** (anything from `.env` you actually want to use — none are
    required to run in paper mode). At minimum, set dashboard credentials
    since the dashboard will be reachable at a public `https://*.fly.dev` URL:
-   ```bash
+   ```powershell
    fly secrets set DASHBOARD_USERNAME=youruser DASHBOARD_PASSWORD='a-real-password' --app your-unique-name-here
    # optional, once you have it:
    fly secrets set TWITTER_BEARER_TOKEN=xxxxx --app your-unique-name-here
    ```
 
 5. **Deploy**:
-   ```bash
+   ```powershell
    fly deploy --app your-unique-name-here
    ```
 
 6. **Check on it, from anywhere, forever**:
-   ```bash
-   fly open --app your-unique-name-here        # opens the dashboard in your browser
-   fly logs --app your-unique-name-here         # live trading logs
+   ```powershell
+   fly open --app your-unique-name-here
+   fly logs --app your-unique-name-here
    fly ssh console --app your-unique-name-here -C "python -m memecoin_trader.cli status"
    ```
    Bookmark the `https://your-unique-name-here.fly.dev` URL (log in with the
@@ -210,7 +220,7 @@ strategy's position sizing.
 
 ## Running the tests
 
-```bash
+```powershell
 pip install -r requirements.txt
 pytest
 ```
