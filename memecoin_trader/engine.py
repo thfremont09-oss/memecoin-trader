@@ -228,6 +228,40 @@ class TradingEngine:
             except Exception:
                 logger.exception("sell execution failed for %s", position.symbol)
 
+    def liquidate_all(self, reason: str = "manual_liquidation") -> int:
+        """Sells every open position immediately at the current market price.
+
+        This is a deliberate, on-demand action (the `liquidate` CLI command)
+        for when you know you're about to be away and want to be in cash —
+        it is never called automatically by the engine itself. Returns the
+        number of positions successfully closed.
+        """
+        closed = 0
+        for position in self.ledger.get_open_positions():
+            market = self.market.get_best_pair_for_token(self.settings.chain_id, position.token_address)
+            if market is None:
+                logger.error(
+                    "cannot liquidate %s (%s): no market data available right now",
+                    position.symbol,
+                    position.token_address,
+                )
+                continue
+            try:
+                fill = self.executor.sell(position.token_address, position.quantity, market)
+                self.ledger.apply_sell(
+                    position=position,
+                    fraction=Decimal(1),
+                    fill=fill,
+                    reason=reason,
+                    mark_take_profit_taken=True,
+                    mode=self.settings.mode,
+                )
+                logger.info("LIQUIDATED: %s (%s) at $%s", position.symbol, position.token_address, market.price_usd)
+                closed += 1
+            except Exception:
+                logger.exception("liquidation failed for %s", position.symbol)
+        return closed
+
     def _record_equity(self) -> None:
         positions_value = Decimal(0)
         for position in self.ledger.get_open_positions():

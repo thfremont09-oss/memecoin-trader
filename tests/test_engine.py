@@ -130,3 +130,46 @@ def test_successful_buy_stores_trade_features_for_training(conn):
     features, label = dataset[0]
     assert label == 0  # closed at a loss
     assert features["signal_score"] == 90.0
+
+
+def test_liquidate_all_sells_every_open_position(conn):
+    engine, signal_source, market = build_engine(conn)
+    token_a = "TOKEN5555555555555555555555555555555555555"
+    token_b = "TOKEN6666666666666666666666666666666666666"
+
+    for token in (token_a, token_b):
+        market.pairs[token] = make_pair(token_address=token, price_usd="1.0")
+        signal_source.queue = [make_signal(token_address=token, score=90)]
+        engine._poll_signals()
+
+    assert len(engine.ledger.get_open_positions()) == 2
+    cash_before = engine.ledger.get_cash_usd()
+
+    closed = engine.liquidate_all()
+
+    assert closed == 2
+    assert engine.ledger.get_open_positions() == []
+    assert engine.ledger.get_cash_usd() > cash_before  # proceeds landed back in cash
+    trades = [t for t in engine.ledger.get_recent_trades() if t.side == "sell"]
+    assert all(t.reason == "manual_liquidation" for t in trades)
+
+
+def test_liquidate_all_skips_positions_with_no_market_data(conn):
+    engine, signal_source, market = build_engine(conn)
+    token = "TOKEN7777777777777777777777777777777777777"
+
+    market.pairs[token] = make_pair(token_address=token, price_usd="1.0")
+    signal_source.queue = [make_signal(token_address=token, score=90)]
+    engine._poll_signals()
+
+    del market.pairs[token]  # simulate no market data available (e.g. delisted, network issue)
+
+    closed = engine.liquidate_all()
+
+    assert closed == 0
+    assert len(engine.ledger.get_open_positions()) == 1  # left open, not lost
+
+
+def test_liquidate_all_is_a_noop_with_no_open_positions(conn):
+    engine, signal_source, market = build_engine(conn)
+    assert engine.liquidate_all() == 0

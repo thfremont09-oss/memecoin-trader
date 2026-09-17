@@ -134,6 +134,45 @@ def cmd_train(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_liquidate(args: argparse.Namespace) -> int:
+    """Sells every open position right now, at current market price.
+
+    A deliberate, on-demand safety valve for "I'm about to go offline and
+    want to be in cash" — run this yourself before stepping away. It is
+    never triggered automatically (not on shutdown, not on restart): a
+    background task cannot reliably catch a PC shutdown or a scheduled-task
+    stop to run this in time anyway, and wiring it into routine
+    restarts/updates would sell everything on every `update.ps1` run.
+    """
+    from memecoin_trader.engine import create_engine
+
+    setup_logging()
+    settings = load_settings()
+    engine = create_engine(settings)
+
+    open_positions = engine.ledger.get_open_positions()
+    if not open_positions:
+        print("No open positions — nothing to liquidate.")
+        return 0
+
+    print(f"About to sell {len(open_positions)} open position(s) at current market price:")
+    for p in open_positions:
+        print(f"  {p.symbol} ({p.token_address}) qty={p.quantity}")
+
+    if not args.yes:
+        answer = input("Type 'yes' to liquidate all of the above now: ")
+        if answer.strip().lower() != "yes":
+            print("aborted.")
+            return 1
+
+    closed = engine.liquidate_all()
+    print(f"Liquidated {closed}/{len(open_positions)} position(s).")
+    if closed < len(open_positions):
+        print("Some positions couldn't be sold (see logs) — likely missing market data right now. Try again shortly.")
+        return 1
+    return 0
+
+
 def cmd_reset(args: argparse.Namespace) -> int:
     settings = load_settings()
     if not args.yes:
@@ -171,6 +210,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_reset = sub.add_parser("reset", help="wipe simulation data and restart from the starting balance")
     p_reset.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
     p_reset.set_defaults(func=cmd_reset)
+
+    p_liquidate = sub.add_parser(
+        "liquidate", help="sell all open positions immediately at current market price"
+    )
+    p_liquidate.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
+    p_liquidate.set_defaults(func=cmd_liquidate)
 
     p_train = sub.add_parser(
         "train", help="train the ML trade-quality model from the bot's own closed-trade history"
