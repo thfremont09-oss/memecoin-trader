@@ -223,6 +223,15 @@ powershell -ExecutionPolicy Bypass -File .\scripts\uninstall_scheduled_tasks.ps1
 This removes the scheduled tasks and stops both processes; `data\trader.db`
 (your trade history) is left alone.
 
+**To pick up code updates:** the bot doesn't auto-update — it keeps running
+whatever was on disk when it last started. Whenever there's a new change to
+grab:
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\update.ps1
+```
+This pulls the latest code, updates dependencies, and restarts both tasks so
+the changes actually take effect.
+
 **Note:** since the tasks trigger "at log on," a PC reboot won't restart the
 bot until you log back in. If you want it to survive an unattended reboot
 too, the tasks can be changed to trigger "at startup" instead (runs as
