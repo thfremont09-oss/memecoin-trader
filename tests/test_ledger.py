@@ -1,0 +1,142 @@
+from decimal import Decimal
+
+import pytest
+
+from memecoin_trader.execution.base import FillResult
+from memecoin_trader.portfolio.ledger import InsufficientCashError
+from tests.conftest import make_signal
+
+
+def buy_fill(price="1.0", quantity="20", amount="20", fee="0.2"):
+    return FillResult(
+        price_usd=Decimal(price),
+        quantity=Decimal(quantity),
+        amount_usd=Decimal(amount),
+        fee_usd=Decimal(fee),
+        tx_id=None,
+    )
+
+
+def test_starting_cash_is_100(ledger):
+    assert ledger.get_cash_usd() == Decimal("100")
+
+
+def test_open_position_deducts_cash_including_fee(ledger):
+    signal = make_signal()
+    fill = buy_fill(price="1.0", quantity="20", amount="20", fee="0.2")
+    ledger.open_position(
+        token_address=signal.token_address,
+        symbol="MEME",
+        chain_id="solana",
+        fill=fill,
+        signal=signal,
+        entry_liquidity_usd=Decimal("20000"),
+        mode="paper",
+    )
+    assert ledger.get_cash_usd() == Decimal("100") - Decimal("20") - Decimal("0.2")
+
+    positions = ledger.get_open_positions()
+    assert len(positions) == 1
+    assert positions[0].quantity == Decimal("20")
+    assert positions[0].cost_basis_usd == Decimal("20.2")
+
+
+def test_open_position_rejects_insufficient_cash(ledger):
+    signal = make_signal()
+    fill = buy_fill(price="1.0", quantity="200", amount="200", fee="2")
+    with pytest.raises(InsufficientCashError):
+        ledger.open_position(
+            token_address=signal.token_address,
+            symbol="MEME",
+            chain_id="solana",
+            fill=fill,
+            signal=signal,
+            entry_liquidity_usd=Decimal("20000"),
+            mode="paper",
+        )
+    assert ledger.get_cash_usd() == Decimal("100")  # untouched on failure
+
+
+def _open(ledger, quantity="20", amount="20", fee="0.2"):
+    signal = make_signal()
+    fill = buy_fill(quantity=quantity, amount=amount, fee=fee)
+    return ledger.open_position(
+        token_address=signal.token_address,
+        symbol="MEME",
+        chain_id="solana",
+        fill=fill,
+        signal=signal,
+        entry_liquidity_usd=Decimal("20000"),
+        mode="paper",
+    )
+
+
+def test_full_sell_realizes_pnl_and_closes_position(ledger):
+    position = _open(ledger, quantity="20", amount="20", fee="0.2")  # cost basis 20.2, entry price 1.0
+
+    sell_fill = FillResult(
+        price_usd=Decimal("2.0"), quantity=Decimal("20"), amount_usd=Decimal("40"), fee_usd=Decimal("0.4"), tx_id=None
+    )
+    trade = ledger.apply_sell(
+        position=position, fraction=Decimal(1), fill=sell_fill, reason="take_profit_partial",
+        mark_take_profit_taken=True, mode="paper",
+    )
+
+    expected_pnl = (Decimal("40") - Decimal("0.4")) - Decimal("20.2")
+    assert trade.realized_pnl_usd == expected_pnl
+    assert ledger.get_open_positions() == []
+
+    state = ledger.get_portfolio_state()
+    assert state.realized_pnl_usd == expected_pnl
+    assert state.cash_usd == Decimal("100") - Decimal("20.2") + (Decimal("40") - Decimal("0.4"))
+
+
+def test_partial_sell_keeps_position_open_with_reduced_quantity(ledger):
+    position = _open(ledger, quantity="20", amount="20", fee="0.2")
+
+    sell_fill = FillResult(
+        price_usd=Decimal("2.0"), quantity=Decimal("10"), amount_usd=Decimal("20"), fee_usd=Decimal("0.2"), tx_id=None
+    )
+    ledger.apply_sell(
+        position=position, fraction=Decimal("0.5"), fill=sell_fill, reason="take_profit_partial",
+        mark_take_profit_taken=True, mode="paper",
+    )
+
+    positions = ledger.get_open_positions()
+    assert len(positions) == 1
+    remaining = positions[0]
+    assert remaining.quantity == Decimal("10")
+    assert remaining.take_profit_taken is True
+    # half the cost basis (20.2 / 2 = 10.1) should remain against the remaining half
+    assert remaining.cost_basis_usd == Decimal("10.1")
+
+
+def test_cooldown_after_closing_a_position(ledger):
+    position = _open(ledger)
+    signal = make_signal()
+    assert ledger.is_token_on_cooldown(signal.token_address, cooldown_minutes=60) is False
+
+    sell_fill = FillResult(
+        price_usd=Decimal("1.0"), quantity=Decimal("20"), amount_usd=Decimal("20"), fee_usd=Decimal("0.2"), tx_id=None
+    )
+    ledger.apply_sell(
+        position=position, fraction=Decimal(1), fill=sell_fill, reason="stop_loss",
+        mark_take_profit_taken=False, mode="paper",
+    )
+    assert ledger.is_token_on_cooldown(signal.token_address, cooldown_minutes=60) is True
+    assert ledger.is_token_on_cooldown(signal.token_address, cooldown_minutes=0) is False
+
+
+def test_equity_snapshot_and_curve(ledger):
+    _open(ledger)
+    ledger.record_equity_snapshot(Decimal("25"))
+    curve = ledger.get_equity_curve()
+    assert len(curve) == 1
+    assert curve[0]["equity_usd"] == pytest.approx(79.8 + 25)  # 100 - 20.2 cash + 25 positions value
+
+
+def test_price_history_is_ordered_oldest_first(ledger):
+    ledger.record_price_snapshot("TOKEN1", Decimal("1.0"), Decimal("20000"), Decimal("50000"))
+    ledger.record_price_snapshot("TOKEN1", Decimal("1.1"), Decimal("20000"), Decimal("50000"))
+    history = ledger.get_price_history("TOKEN1")
+    assert history == [Decimal("1.0"), Decimal("1.1")]

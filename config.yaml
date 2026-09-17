@@ -1,0 +1,55 @@
+# Strategy configuration for the memecoin trading bot.
+# Secrets (API keys, wallet keys) go in .env, not here.
+
+mode: paper  # paper | live  (live also requires env safety flags, see README)
+
+portfolio:
+  starting_balance_usd: 100.0
+
+chain:
+  id: solana
+
+# How often the engine does things, in seconds.
+timing:
+  tick_seconds: 5                    # how often the main loop wakes up
+  signal_poll_interval_seconds: 45   # how often we check Twitter/mock feed for new hype
+  position_check_interval_seconds: 20 # how often we refresh price for open positions
+  equity_snapshot_interval_seconds: 30 # how often we record equity for the dashboard chart
+  token_cooldown_minutes: 60         # don't re-buy a token this soon after selling it
+
+entry:
+  mention_score_threshold: 55.0      # 0-100 hype score required to consider a buy
+  min_liquidity_usd: 5000
+  min_volume_24h_usd: 10000
+  min_pair_age_minutes: 5            # avoid the first few minutes (sniper/instant-rug risk)
+  max_pair_age_hours: 72             # only chase fresh hype, not old coins
+  max_open_positions: 4
+  position_size_pct_of_cash: 0.20    # fraction of *current cash* per new trade
+  min_trade_usd: 5.0
+  max_trade_usd: 40.0
+
+exit:
+  stop_loss_pct: 0.25                # sell all if price drops 25% from entry
+  take_profit_pct: 0.50              # first take-profit trigger
+  take_profit_sell_fraction: 0.5     # sell this fraction of the position at take-profit
+  trailing_stop_pct: 0.20            # after that, trail the peak by this much
+  max_hold_minutes: 240              # force exit after this long regardless
+  liquidity_rug_fraction: 0.4        # emergency exit if liquidity falls below this fraction of entry liquidity
+
+execution:
+  paper:
+    base_slippage_bps: 50            # 0.5% baseline slippage
+    slippage_impact_factor: 2.0      # extra slippage scales with trade_size / liquidity
+    fee_bps: 100                     # 1% simulated DEX + network fee
+  live:
+    max_trade_usd: 5.0               # hard safety cap per trade while in live mode
+    slippage_bps: 100                # slippage tolerance sent to the swap router
+    priority_fee_lamports: 200000
+
+signals:
+  mock:
+    trending_refresh_minutes: 10     # how often the mock source refreshes its pool of real trending tokens
+    max_signals_per_poll: 3
+  twitter:
+    query: "(pump.fun OR \"just launched\" OR $SOL) (moon OR pump OR gem OR 100x) -is:retweet lang:en"
+    max_results_per_poll: 25

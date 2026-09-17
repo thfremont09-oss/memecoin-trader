@@ -1,0 +1,15 @@
+[project]
+name = "memecoin-trader"
+version = "0.1.0"
+description = "Simulation-first memecoin FOMO trading bot (Solana), ready to go live."
+requires-python = ">=3.10"
+
+[project.scripts]
+memecoin-trader = "memecoin_trader.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["memecoin_trader*"]

@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Memecoin Trader</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --bg: #0b0d12;
+    --panel: #14171f;
+    --border: #262b36;
+    --text: #e6e8ec;
+    --muted: #8b93a3;
+    --green: #3ecf8e;
+    --red: #ef5b5b;
+    --accent: #7c8cff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    padding: 24px;
+  }
+  h1 { font-size: 20px; margin: 0 0 4px 0; }
+  .subtitle { color: var(--muted); font-size: 13px; margin-bottom: 24px; }
+  .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px;
+    font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .badge.paper { background: #1f2b3a; color: #6fb3ff; }
+  .badge.live { background: #3a1f1f; color: var(--red); }
+  .cards {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: 12px; margin-bottom: 24px;
+  }
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 16px;
+  }
+  .card .label { color: var(--muted); font-size: 12px; margin-bottom: 6px; }
+  .card .value { font-size: 22px; font-weight: 600; }
+  .positive { color: var(--green); }
+  .negative { color: var(--red); }
+  .panel {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
+    padding: 16px; margin-bottom: 24px;
+  }
+  .panel h2 { font-size: 14px; margin: 0 0 12px 0; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; }
+  .empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
+  canvas { max-height: 260px; }
+</style>
+</head>
+<body>
+  <h1>Memecoin Trader <span class="badge {{ mode }}">{{ mode }}</span></h1>
+  <div class="subtitle">Simulated portfolio starting from ${{ "%.2f"|format(summary.starting_balance_usd) }} · auto-refreshes every 15s</div>
+
+  <div class="cards">
+    <div class="card">
+      <div class="label">Equity</div>
+      <div class="value">${{ "%.2f"|format(summary.equity_usd) }}</div>
+    </div>
+    <div class="card">
+      <div class="label">Cash</div>
+      <div class="value">${{ "%.2f"|format(summary.cash_usd) }}</div>
+    </div>
+    <div class="card">
+      <div class="label">In positions</div>
+      <div class="value">${{ "%.2f"|format(summary.positions_value_usd) }}</div>
+    </div>
+    <div class="card">
+      <div class="label">Total return</div>
+      <div class="value {{ 'positive' if summary.total_return_usd >= 0 else 'negative' }}">
+        {{ "%+.2f"|format(summary.total_return_usd) }} ({{ "%+.1f"|format(summary.total_return_pct) }}%)
+      </div>
+    </div>
+    <div class="card">
+      <div class="label">Realized P&amp;L</div>
+      <div class="value {{ 'positive' if summary.realized_pnl_usd >= 0 else 'negative' }}">
+        {{ "%+.2f"|format(summary.realized_pnl_usd) }}
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>Equity curve</h2>
+    <canvas id="equityChart"></canvas>
+  </div>
+
+  <div class="panel">
+    <h2>Open positions ({{ summary.open_positions|length }})</h2>
+    {% if summary.open_positions %}
+    <table>
+      <tr><th>Symbol</th><th>Qty</th><th>Entry</th><th>Now</th><th>Value</th><th>P&amp;L</th><th>Opened</th><th>Source</th></tr>
+      {% for p in summary.open_positions %}
+      <tr>
+        <td>{{ p.symbol }}</td>
+        <td>{{ "%.4f"|format(p.quantity) }}</td>
+        <td>${{ "%.6f"|format(p.entry_price_usd) }}</td>
+        <td>${{ "%.6f"|format(p.current_price_usd) }}</td>
+        <td>${{ "%.2f"|format(p.value_usd) }}</td>
+        <td class="{{ 'positive' if p.unrealized_pnl_usd >= 0 else 'negative' }}">
+          {{ "%+.2f"|format(p.unrealized_pnl_usd) }} ({{ "%+.1f"|format(p.unrealized_pnl_pct) }}%)
+        </td>
+        <td>{{ p.opened_at[:16] }}</td>
+        <td>{{ p.signal_source }} ({{ "%.0f"|format(p.signal_score) }})</td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <div class="empty">No open positions right now.</div>
+    {% endif %}
+  </div>
+
+  <div class="panel">
+    <h2>Recent trades</h2>
+    {% if summary.recent_trades %}
+    <table>
+      <tr><th>Time</th><th>Side</th><th>Symbol</th><th>Amount</th><th>Price</th><th>Reason</th><th>P&amp;L</th></tr>
+      {% for t in summary.recent_trades %}
+      <tr>
+        <td>{{ t.executed_at[:16] }}</td>
+        <td>{{ t.side }}</td>
+        <td>{{ t.symbol }}</td>
+        <td>${{ "%.2f"|format(t.amount_usd) }}</td>
+        <td>${{ "%.6f"|format(t.price_usd) }}</td>
+        <td>{{ t.reason }}</td>
+        <td class="{{ 'positive' if (t.realized_pnl_usd or 0) >= 0 else 'negative' }}">
+          {{ "%+.2f"|format(t.realized_pnl_usd) if t.realized_pnl_usd is not none else "—" }}
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <div class="empty">No trades yet.</div>
+    {% endif %}
+  </div>
+
+<script>
+  const equityCurve = {{ summary.equity_curve|tojson }};
+  const ctx = document.getElementById('equityChart');
+  new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: equityCurve.map(p => p.recorded_at.slice(5, 16).replace('T', ' ')),
+      datasets: [{
+        label: 'Equity (USD)',
+        data: equityCurve.map(p => p.equity_usd),
+        borderColor: '#7c8cff',
+        backgroundColor: 'rgba(124,140,255,0.1)',
+        fill: true,
+        tension: 0.2,
+        pointRadius: 0,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        x: { ticks: { color: '#8b93a3', maxTicksLimit: 8 }, grid: { color: '#262b36' } },
+        y: { ticks: { color: '#8b93a3' }, grid: { color: '#262b36' } },
+      }
+    }
+  });
+
+  setTimeout(() => location.reload(), 15000);
+</script>
+</body>
+</html>
