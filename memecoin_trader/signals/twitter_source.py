@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import logging
 import math
-import re
 from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Any
@@ -20,14 +19,11 @@ import requests
 from memecoin_trader.config import TwitterSignalConfig
 from memecoin_trader.market.dexscreener import DexScreenerClient
 from memecoin_trader.signals.base import SignalSource, SocialSignal
+from memecoin_trader.signals.text_extraction import extract_token_addresses
 
 logger = logging.getLogger(__name__)
 
 SEARCH_URL = "https://api.twitter.com/2/tweets/search/recent"
-
-# Solana addresses are base58 (no 0, O, I, l), typically 32-44 chars.
-_SOLANA_ADDRESS_RE = re.compile(r"\b[1-9A-HJ-NP-Za-km-z]{32,44}\b")
-_CASHTAG_RE = re.compile(r"\$([A-Za-z][A-Za-z0-9]{1,9})\b")
 
 
 class TwitterAPISource(SignalSource):
@@ -74,16 +70,7 @@ class TwitterAPISource(SignalSource):
         return min(100.0, 12.0 * math.log1p(weighted))
 
     def _extract_token_addresses(self, text: str) -> list[str]:
-        addresses = _SOLANA_ADDRESS_RE.findall(text)
-        if addresses:
-            return addresses
-        cashtags = _CASHTAG_RE.findall(text)
-        resolved = []
-        for tag in cashtags[:2]:  # avoid burning search calls on spammy multi-tag posts
-            addr = self._resolve_cashtag(tag)
-            if addr:
-                resolved.append(addr)
-        return resolved
+        return extract_token_addresses(text, resolve_cashtag=self._resolve_cashtag)
 
     def poll(self) -> list[SocialSignal]:
         params: dict[str, Any] = {

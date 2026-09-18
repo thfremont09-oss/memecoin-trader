@@ -1,0 +1,7 @@
+# Only needed if you enable signals.scraper.enabled in config.yaml (real
+# Twitter/X via browser automation instead of the paid API). Not needed
+# otherwise.
+-r requirements.txt
+playwright>=1.40
+
+# After pip install, also run once: playwright install chromium

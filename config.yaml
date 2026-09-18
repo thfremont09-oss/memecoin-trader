@@ -67,3 +67,13 @@ signals:
   twitter:
     query: "(pump.fun OR \"just launched\" OR $SOL) (moon OR pump OR gem OR 100x) -is:retweet lang:en"
     max_results_per_poll: 25
+  scraper:
+    # Real Twitter/X via browser automation instead of the paid API — see
+    # README's "Real Twitter/X via browser scraping" section before enabling.
+    # Requires: pip install -r requirements-scraper.txt, playwright install
+    # chromium, and python scripts/twitter_login_setup.py (once).
+    enabled: false
+    search_query: "(pump.fun OR \"just launched\" OR $SOL) (moon OR pump OR gem OR 100x) -filter:replies lang:en"
+    headless: true
+    max_tweets_per_poll: 25
+    mention_cooldown_minutes: 30       # don't re-signal the same token more often than this

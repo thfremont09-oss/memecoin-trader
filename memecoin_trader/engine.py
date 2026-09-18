@@ -9,7 +9,7 @@ from decimal import Decimal
 
 from memecoin_trader.analysis.entry_strategy import EntryContext, evaluate_entry
 from memecoin_trader.analysis.exit_strategy import evaluate_exit
-from memecoin_trader.config import DB_PATH, MODEL_PATH, Settings
+from memecoin_trader.config import DB_PATH, MODEL_PATH, TWITTER_SESSION_PATH, Settings
 from memecoin_trader.execution.base import Executor
 from memecoin_trader.execution.paper_executor import PaperExecutor
 from memecoin_trader.market.dexscreener import DexScreenerClient
@@ -31,6 +31,20 @@ def build_signal_source(settings: Settings, market_client: DexScreenerClient) ->
         return TwitterAPISource(
             config=settings.twitter_signal,
             bearer_token=settings.secrets.twitter_bearer_token,
+            chain_id=settings.chain_id,
+            market_client=market_client,
+        )
+    if settings.scraper_signal.enabled:
+        from memecoin_trader.signals.twitter_scraper_source import TwitterScraperSource
+
+        logger.warning(
+            "using browser-scraper Twitter signal source — this violates X's Terms of "
+            "Service and can get the account whose session is used suspended. Make sure "
+            "that's a throwaway account, not your main one."
+        )
+        return TwitterScraperSource(
+            config=settings.scraper_signal,
+            session_path=TWITTER_SESSION_PATH,
             chain_id=settings.chain_id,
             market_client=market_client,
         )

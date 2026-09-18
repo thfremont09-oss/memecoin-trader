@@ -50,6 +50,63 @@ bearer token into `.env` and the bot automatically switches to
 interface, same downstream code, real tweets in, real token addresses and
 cashtags extracted, engagement-weighted scoring.
 
+### Real Twitter/X via browser scraping (no API key, but real risk)
+
+As of February 2026, X has no free API tier at all — reading tweets costs
+$0.005/read, pay-per-use, no monthly minimum (see [Going live](#going-live)-style
+tradeoffs below). If you'd rather not pay that, there's a third option:
+`TwitterScraperSource` (`memecoin_trader/signals/twitter_scraper_source.py`)
+logs into a real X account with a real browser (via
+[Playwright](https://playwright.dev)) and reads live search results.
+
+**Read this before enabling it.** This is not the paid API — it automates an
+X account to read the site, which violates X's Terms of Service regardless
+of how gently it's done. Some technical reality behind that:
+
+- The old free scraping tools are dead: `snscrape` has been unmaintained and
+  broken since 2023, and public Nitter mirrors are gone (X sent cease-and-desist
+  letters). What still works logs into real accounts and replays the app's
+  internal API calls.
+- **Use a throwaway X account you create just for this — never your main
+  one.** The account whose session this uses can be suspended if X's
+  automation detection flags it. There's no way to guarantee it won't be. A
+  throwaway account means that cost is a nuisance, not a loss of your real
+  account, contacts, and history.
+- This project deliberately does **not** automate login, CAPTCHA-solving, or
+  2FA, and does not run a rotating pool of accounts to dodge bans (a
+  technique some scraping guides describe) — that crosses from "personal
+  automation" into building infrastructure specifically to evade a
+  platform's abuse detection, which isn't something this project does. You
+  log into the throwaway account yourself, once, in a real visible browser
+  window; the bot only reuses the session that creates.
+- Unverified against the live site from the sandbox this was built in (no
+  network access there to x.com) — X's page structure may have drifted from
+  what's assumed here by the time you run it for real. Watch the logs.
+- No engagement counts (likes/retweets) are scraped — that part of X's
+  markup is the most brittle and changes often — so signals are scored by
+  mention count instead of engagement, unlike the official API source.
+
+**Setup**, once you've decided the throwaway-account risk is acceptable:
+```powershell
+pip install -r requirements-scraper.txt
+playwright install chromium
+python scripts/twitter_login_setup.py
+```
+The last command opens a real browser window to the X login page — log into
+your throwaway account there yourself (username/password, CAPTCHA, 2FA,
+whatever X asks for), then press Enter in the terminal once you see your
+home timeline. It saves the resulting session to `data/twitter_session.json`
+(gitignored — never commit it, it's equivalent to a login cookie).
+
+Then set `signals.scraper.enabled: true` in `config.yaml` and restart the
+bot. If the session ever expires or the account gets logged out, the logs
+will say so clearly (`X session expired or invalid`) — just re-run
+`twitter_login_setup.py`.
+
+**Precedence**: a real `TWITTER_BEARER_TOKEN` in `.env` always wins over the
+scraper if both are configured; the scraper wins over the simulated feed if
+enabled. Only one signal source runs at a time.
+
 ### Why the simulation should be trusted
 
 - All money math uses Python `Decimal` and is stored as exact decimal
@@ -433,8 +490,10 @@ memecoin_trader/
   reporting.py           shared summary builder (CLI status + dashboard)
   signals/
     base.py              SignalSource interface, SocialSignal
+    text_extraction.py    shared token-address/cashtag extraction (API + scraper sources)
     mock_source.py        simulated hype feed over real trending tokens
     twitter_source.py     real X API v2 adapter (needs TWITTER_BEARER_TOKEN)
+    twitter_scraper_source.py  real X via browser automation (needs a throwaway account + session)
   market/
     dexscreener.py        real public market data client
     rugcheck.py            RugCheck.xyz pre-trade safety client
@@ -453,6 +512,7 @@ memecoin_trader/
     live_executor.py       real Solana swaps via Jupiter (gated, experimental)
   dashboard/
     server.py + templates/index.html   local FastAPI dashboard
-scripts/                  Windows Task Scheduler installer/watchdogs (24/7 without a cloud host)
+scripts/                  Windows Task Scheduler installer/watchdogs (24/7 without a cloud host),
+                          twitter_login_setup.py (one-time manual X login for the browser scraper)
 tests/                    pytest suite
 ```

@@ -17,6 +17,7 @@ DATA_DIR = Path(os.environ.get("MEMECOIN_DATA_DIR", str(PROJECT_ROOT / "data")))
 DB_PATH = DATA_DIR / "trader.db"
 LOG_PATH = DATA_DIR / "trader.log"
 MODEL_PATH = DATA_DIR / "model.joblib"
+TWITTER_SESSION_PATH = DATA_DIR / "twitter_session.json"
 
 
 @dataclass(frozen=True)
@@ -98,6 +99,15 @@ class TwitterSignalConfig:
 
 
 @dataclass(frozen=True)
+class ScraperSignalConfig:
+    enabled: bool
+    search_query: str
+    headless: bool
+    max_tweets_per_poll: int
+    mention_cooldown_minutes: float
+
+
+@dataclass(frozen=True)
 class Secrets:
     twitter_bearer_token: str | None
     solana_private_key: str | None
@@ -117,6 +127,7 @@ class Settings:
     live_execution: LiveExecutionConfig
     mock_signal: MockSignalConfig
     twitter_signal: TwitterSignalConfig
+    scraper_signal: ScraperSignalConfig
     secrets: Secrets
     raw: dict[str, Any] = field(repr=False)
 
@@ -147,6 +158,7 @@ def load_settings(config_path: Path | None = None, env_path: Path | None = None)
     live_exec = LiveExecutionConfig(**raw["execution"]["live"])
     mock_signal = MockSignalConfig(**raw["signals"]["mock"])
     twitter_signal = TwitterSignalConfig(**raw["signals"]["twitter"])
+    scraper_signal = ScraperSignalConfig(**raw["signals"]["scraper"])
 
     secrets = Secrets(
         twitter_bearer_token=os.environ.get("TWITTER_BEARER_TOKEN") or None,
@@ -167,6 +179,7 @@ def load_settings(config_path: Path | None = None, env_path: Path | None = None)
         live_execution=live_exec,
         mock_signal=mock_signal,
         twitter_signal=twitter_signal,
+        scraper_signal=scraper_signal,
         secrets=secrets,
         raw=raw,
     )
