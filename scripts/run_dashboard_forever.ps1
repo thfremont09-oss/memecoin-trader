@@ -42,11 +42,19 @@ function Write-WatchdogLog {
     }
 }
 
+$stdOutLog = Join-Path $dataDir "dashboard_stdout.log"
+$stdErrLog = Join-Path $dataDir "dashboard_stderr.log"
+
 try {
     while ($true) {
         Write-WatchdogLog "$(Get-Date -Format o) [watchdog] starting dashboard"
-        & $venvPython -u -m memecoin_trader.cli dashboard --host 127.0.0.1 --port 8787 *>> $watchdogLog
-        Write-WatchdogLog "$(Get-Date -Format o) [watchdog] dashboard exited (code $LASTEXITCODE); restarting in 5s"
+        # See run_engine_forever.ps1 for why Start-Process's own redirect
+        # params replaced PowerShell's `*>>` operator here.
+        $proc = Start-Process -FilePath $venvPython `
+            -ArgumentList @("-u", "-m", "memecoin_trader.cli", "dashboard", "--host", "127.0.0.1", "--port", "8787") `
+            -RedirectStandardOutput $stdOutLog -RedirectStandardError $stdErrLog `
+            -NoNewWindow -PassThru -Wait
+        Write-WatchdogLog "$(Get-Date -Format o) [watchdog] dashboard exited (code $($proc.ExitCode)); restarting in 5s"
         Start-Sleep -Seconds 5
     }
 } finally {

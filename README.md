@@ -294,7 +294,14 @@ locked, just not asleep or shut down) whenever you want the bot trading.
    either ever crashes.
 
 3. Open **http://127.0.0.1:8787** any time to check balance/positions/trades.
-   Logs are in `data\engine_watchdog.log` and `data\dashboard_watchdog.log`.
+   The most reliable log is `data\trader.log` — it's written directly by
+   Python, so it always shows what the engine and dashboard are actually
+   doing (e.g. `Get-Content data\trader.log -Tail 20 -Wait`). There are also
+   `data\engine_watchdog.log` / `data\dashboard_watchdog.log` (just
+   start/restart lifecycle messages from the wrapper script) and
+   `data\engine_stdout.log` / `data\engine_stderr.log` /
+   `data\dashboard_stdout.log` / `data\dashboard_stderr.log` (raw
+   console output from each process, useful if one won't start at all).
 
 4. **Stop Windows from sleeping** while plugged in, or trading pauses whenever
    the PC does:

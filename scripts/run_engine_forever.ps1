@@ -39,11 +39,23 @@ function Write-WatchdogLog {
     }
 }
 
+$stdOutLog = Join-Path $dataDir "engine_stdout.log"
+$stdErrLog = Join-Path $dataDir "engine_stderr.log"
+
 try {
     while ($true) {
         Write-WatchdogLog "$(Get-Date -Format o) [watchdog] starting engine"
-        & $venvPython -u -m memecoin_trader.cli run *>> $watchdogLog
-        Write-WatchdogLog "$(Get-Date -Format o) [watchdog] engine exited (code $LASTEXITCODE); restarting in 5s"
+        # Start-Process's own -RedirectStandardOutput/-Error (backed by .NET's
+        # Process class) instead of PowerShell's `*>>` operator, which turned
+        # out to silently swallow output when launched hidden by Task
+        # Scheduler -- the engine was running fine the whole time (see
+        # data\trader.log, written directly by Python itself), only this
+        # redirect path was broken.
+        $proc = Start-Process -FilePath $venvPython `
+            -ArgumentList @("-u", "-m", "memecoin_trader.cli", "run") `
+            -RedirectStandardOutput $stdOutLog -RedirectStandardError $stdErrLog `
+            -NoNewWindow -PassThru -Wait
+        Write-WatchdogLog "$(Get-Date -Format o) [watchdog] engine exited (code $($proc.ExitCode)); restarting in 5s"
         Start-Sleep -Seconds 5
     }
 } finally {
