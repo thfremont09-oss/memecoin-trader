@@ -19,8 +19,14 @@ out.
 from __future__ import annotations
 
 import sys
+from pathlib import Path
 
-from memecoin_trader.config import DATA_DIR
+# Running this file directly (`python scripts/twitter_login_setup.py`) puts
+# scripts/ on sys.path, not the repo root, so the memecoin_trader package
+# next to it can't be found without this.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from memecoin_trader.config import DATA_DIR  # noqa: E402
 
 SESSION_PATH = DATA_DIR / "twitter_session.json"
 
