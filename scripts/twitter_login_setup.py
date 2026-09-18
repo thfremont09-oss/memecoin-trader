@@ -27,6 +27,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from memecoin_trader.config import DATA_DIR  # noqa: E402
+from memecoin_trader.signals.browser_utils import (  # noqa: E402
+    HIDE_WEBDRIVER_SCRIPT,
+    LAUNCH_ARGS,
+    new_context_kwargs,
+)
 
 SESSION_PATH = DATA_DIR / "twitter_session.json"
 
@@ -44,13 +49,14 @@ def main() -> int:
 
     with sync_playwright() as p:
         try:
-            browser = p.chromium.launch(headless=False)
+            browser = p.chromium.launch(headless=False, args=LAUNCH_ARGS)
         except Exception as exc:
             print(f"Couldn't launch a browser: {exc}")
             print("Run: playwright install chromium")
             return 1
 
-        context = browser.new_context()
+        context = browser.new_context(**new_context_kwargs())
+        context.add_init_script(HIDE_WEBDRIVER_SCRIPT)
         page = context.new_page()
         page.goto("https://x.com/login")
 

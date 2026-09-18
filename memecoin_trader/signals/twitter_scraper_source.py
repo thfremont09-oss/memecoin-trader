@@ -81,9 +81,18 @@ class TwitterScraperSource(SignalSource):
             return
         from playwright.sync_api import sync_playwright
 
+        from memecoin_trader.signals.browser_utils import (
+            HIDE_WEBDRIVER_SCRIPT,
+            LAUNCH_ARGS,
+            new_context_kwargs,
+        )
+
         self._playwright = sync_playwright().start()
-        self._browser = self._playwright.chromium.launch(headless=self._config.headless)
-        self._context = self._browser.new_context(storage_state=str(self._session_path))
+        self._browser = self._playwright.chromium.launch(headless=self._config.headless, args=LAUNCH_ARGS)
+        self._context = self._browser.new_context(
+            storage_state=str(self._session_path), **new_context_kwargs()
+        )
+        self._context.add_init_script(HIDE_WEBDRIVER_SCRIPT)
 
     def _teardown_browser(self) -> None:
         for obj, method in ((self._context, "close"), (self._browser, "close"), (self._playwright, "stop")):
