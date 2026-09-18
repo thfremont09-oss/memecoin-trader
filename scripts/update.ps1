@@ -29,6 +29,19 @@ if ($LASTEXITCODE -eq 0) {
     & $venvPython -m pip install -q -r requirements-ml.txt
 }
 
+function Stop-OrphanedBotProcesses {
+    # Stop-ScheduledTask only stops the task's own wrapper process (the
+    # powershell.exe running run_engine_forever.ps1/run_dashboard_forever.ps1)
+    # -- it does NOT reliably kill the python.exe child that wrapper launched,
+    # which can keep running in the background indefinitely otherwise.
+    $procs = Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.ExecutablePath -and $_.ExecutablePath -like "*memecoin-trader*" }
+    foreach ($proc in $procs) {
+        Write-Host "Stopping orphaned process (PID $($proc.ProcessId))..."
+        Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
+    }
+}
+
 Write-Host "Restarting the engine and dashboard..."
 $tasks = @("MemecoinTraderEngine", "MemecoinTraderDashboard")
 $anyFailed = $false
@@ -43,7 +56,15 @@ foreach ($task in $tasks) {
     } catch {
         # wasn't running -- fine, we're about to start it anyway
     }
-    Start-Sleep -Seconds 1
+}
+
+Start-Sleep -Seconds 1
+Stop-OrphanedBotProcesses
+
+foreach ($task in $tasks) {
+    if (-not (Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue)) {
+        continue  # already warned above
+    }
     try {
         Start-ScheduledTask -TaskName $task -ErrorAction Stop
         Write-Host "Restarted: $task"

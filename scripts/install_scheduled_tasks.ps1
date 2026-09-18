@@ -35,6 +35,7 @@ function Register-WatchdogTask {
         -MultipleInstances IgnoreNew
 
     if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
+        Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
         Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false -ErrorAction Stop
     }
 
@@ -50,6 +51,16 @@ $venvPython = Join-Path $repoRoot ".venv\Scripts\python.exe"
 if (-not (Test-Path $venvPython)) {
     Write-Error "Virtual environment not found at $venvPython. Run the Setup steps in README.md first (python -m venv .venv, then pip install -r requirements.txt)."
     exit 1
+}
+
+# Stop-ScheduledTask above only stops the task's wrapper process, not the
+# python.exe child it launched -- clean up any still running before we
+# start fresh copies, so re-running this script never leaves duplicates.
+$orphans = Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.ExecutablePath -and $_.ExecutablePath -like "*memecoin-trader*" }
+foreach ($proc in $orphans) {
+    Write-Host "Stopping orphaned process (PID $($proc.ProcessId))..."
+    Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
 }
 
 $allSucceeded = $true
