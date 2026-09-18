@@ -29,7 +29,7 @@ market data                                                            ▲
 | Market data (price, liquidity, volume, pair age) | **Real** — pulled live from the public [DexScreener API](https://docs.dexscreener.com/api/reference), no key needed |
 | Trade fills (slippage, fees) | **Simulated**, but modeled on the actual liquidity of the real pair, so a thin pool gets realistically worse fills than a deep one |
 | Twitter/X hype signal | **Simulated** by default — see below. A real X API adapter (and a browser-scraper fallback) exists and is a one-line switch away |
-| Reddit hype signal | **Off by default**, real data once enabled — free official API, scans configurable subreddits for token mentions, runs alongside whichever Twitter/X source is active. See [Reddit](#reddit-free-official-api-no-scraping) |
+| Reddit hype signal | **Enabled but inert until credentialed** — official API, but Reddit now requires a manual, multi-week approval before you can get a key (no more instant self-serve). Runs alongside whichever Twitter/X source is active once set up. See [Reddit](#reddit-official-api-approval-required) |
 | Rug-pull screening | **Real** — [RugCheck.xyz](https://rugcheck.xyz) checked before every buy (mint/freeze authority, LP lock, holder risk), plus liquidity/FDV and price-spike heuristics from DexScreener data |
 | Trade-quality ML model | **Off by default** — trains on the bot's own closed-trade history once there's enough of it; see [Machine learning](#machine-learning) |
 | Money | **Simulated** ("paper" mode) by default. A real Solana execution path exists (`--live`) but is off by default and hard-gated — see [Going live](#going-live) |
@@ -109,29 +109,38 @@ scraper if both are configured; the scraper wins over the simulated feed if
 enabled. Only one of these three Twitter/X sources runs at a time — but
 Reddit (below) runs *alongside* whichever one is active, not instead of it.
 
-### Reddit (free, official API, no scraping)
+### Reddit (official API, approval required)
 
-Unlike Twitter/X, Reddit has a free official API, so there's no ToS-violation
-risk or throwaway-account dance here — this one is safe to just turn on.
-`RedditSource` (`memecoin_trader/signals/reddit_source.py`) scans the
-subreddits listed in `signals.reddit.subreddits` in `config.yaml` (defaults:
-r/CryptoMoonShots, r/solana, r/SatoshiStreetBets, r/CryptoCurrency,
+Unlike Twitter/X, Reddit's API itself is free and there's no throwaway-account
+scraping risk here. `RedditSource` (`memecoin_trader/signals/reddit_source.py`)
+scans the subreddits listed in `signals.reddit.subreddits` in `config.yaml`
+(defaults: r/CryptoMoonShots, r/solana, r/SatoshiStreetBets, r/CryptoCurrency,
 r/pumpfun) for token mentions, scoring by each post's upvotes and comment
 count the same way the official Twitter API source scores by likes/retweets.
 
-**Setup:**
-1. Create a Reddit account if you don't have one (your normal account is
-   fine — this only reads public posts, no account automation involved).
-2. Go to https://www.reddit.com/prefs/apps, click "create app", choose
-   **script**, and fill in any name/description (redirect URI can be
-   `http://localhost:8080`).
-3. Copy the client ID (the string under the app's name) and secret into
-   `.env`:
+**Correction from when this section was first written:** Reddit's old
+"self-serve, instant client ID/secret" flow is gone. As of its 2026
+"Responsible Builder Policy," Reddit requires **explicit pre-approval before
+any API access, including personal, non-commercial scripts** — there's no
+more just clicking "create app" and getting keys immediately.
+
+**Setup, if you want to pursue it:**
+1. Find and submit Reddit's API access request (linked from Reddit's Data
+   API Wiki / developer docs — search "Reddit Data API Wiki" if the link
+   moves). Describe a personal, non-commercial, **read-only** script that
+   polls a handful of subreddits.
+2. Wait — reportedly **2-4 weeks** for a manual review, with a real chance
+   of rejection or no response at all. This is not a formality.
+3. Only once approved: go to https://www.reddit.com/prefs/apps, "create
+   app", choose **script**, redirect URI can be `http://localhost:8080`.
+4. Copy the client ID (under the app's name) and secret into `.env`:
    ```
    REDDIT_CLIENT_ID=...
    REDDIT_CLIENT_SECRET=...
    ```
-4. Set `signals.reddit.enabled: true` in `config.yaml` and restart the bot.
+   `signals.reddit.enabled` is already `true` in `config.yaml` — with no
+   credentials set, the engine just logs a warning and runs on Twitter/mock
+   alone, so there's nothing to turn off while you wait.
 
 Both this and the active Twitter/X source feed the same entry strategy, rug
 checks, and ML gate — a token still has to clear all of that regardless of
