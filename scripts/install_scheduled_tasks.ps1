@@ -26,12 +26,17 @@ function Register-WatchdogTask {
     $action = New-ScheduledTaskAction -Execute "powershell.exe" `
         -Argument "-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$ScriptPath`""
     $trigger = New-ScheduledTaskTrigger -AtLogOn
+    # No -RestartCount/-RestartInterval here on purpose: the script itself
+    # already retries its own inner process forever (see the while loop
+    # below), so Task Scheduler restarting the *wrapper* on top of that is
+    # a second, redundant auto-restart layer -- and if Task Scheduler ever
+    # loses track of a long-running hidden process (a known quirk), that
+    # combination can fire duplicate wrapper instances that fight over the
+    # same log file and each spawn their own engine process.
     $settings = New-ScheduledTaskSettingsSet `
         -AllowStartIfOnBatteries `
         -DontStopIfGoingOnBatteries `
         -ExecutionTimeLimit ([TimeSpan]::Zero) `
-        -RestartCount 999 `
-        -RestartInterval (New-TimeSpan -Minutes 1) `
         -MultipleInstances IgnoreNew
 
     if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
