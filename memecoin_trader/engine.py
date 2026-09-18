@@ -28,13 +28,13 @@ logger = logging.getLogger(__name__)
 def build_signal_source(settings: Settings, market_client: DexScreenerClient) -> SignalSource:
     if settings.secrets.twitter_bearer_token:
         logger.info("using real Twitter/X API signal source")
-        return TwitterAPISource(
+        primary: SignalSource = TwitterAPISource(
             config=settings.twitter_signal,
             bearer_token=settings.secrets.twitter_bearer_token,
             chain_id=settings.chain_id,
             market_client=market_client,
         )
-    if settings.scraper_signal.enabled:
+    elif settings.scraper_signal.enabled:
         from memecoin_trader.signals.twitter_scraper_source import TwitterScraperSource
 
         logger.warning(
@@ -42,14 +42,41 @@ def build_signal_source(settings: Settings, market_client: DexScreenerClient) ->
             "Service and can get the account whose session is used suspended. Make sure "
             "that's a throwaway account, not your main one."
         )
-        return TwitterScraperSource(
+        primary = TwitterScraperSource(
             config=settings.scraper_signal,
             session_path=TWITTER_SESSION_PATH,
             chain_id=settings.chain_id,
             market_client=market_client,
         )
-    logger.info("no TWITTER_BEARER_TOKEN set — using simulated hype feed over real trending tokens")
-    return MockTwitterSource(config=settings.mock_signal, chain_id=settings.chain_id, client=market_client)
+    else:
+        logger.info("no TWITTER_BEARER_TOKEN set — using simulated hype feed over real trending tokens")
+        primary = MockTwitterSource(config=settings.mock_signal, chain_id=settings.chain_id, client=market_client)
+
+    sources = [primary]
+    if settings.reddit_signal.enabled:
+        if not (settings.secrets.reddit_client_id and settings.secrets.reddit_client_secret):
+            logger.warning(
+                "signals.reddit.enabled is true but REDDIT_CLIENT_ID/REDDIT_CLIENT_SECRET "
+                "are not set — skipping the Reddit signal source"
+            )
+        else:
+            from memecoin_trader.signals.reddit_source import RedditSource
+
+            logger.info("adding Reddit signal source alongside %s", primary.name)
+            sources.append(
+                RedditSource(
+                    config=settings.reddit_signal,
+                    secrets=settings.secrets,
+                    chain_id=settings.chain_id,
+                    market_client=market_client,
+                )
+            )
+
+    if len(sources) == 1:
+        return sources[0]
+    from memecoin_trader.signals.composite_source import CompositeSignalSource
+
+    return CompositeSignalSource(sources)
 
 
 def build_executor(settings: Settings) -> Executor:

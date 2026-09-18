@@ -9,7 +9,7 @@ real trading later is a config change, not a rewrite.
 
 ```
 signal source  ──▶  entry strategy  ──▶  paper/live executor  ──▶  ledger (SQLite)
-(Twitter/mock)       (filters:            (fills against real         │
+(Twitter/Reddit/mock) (filters:           (fills against real         │
      │                liquidity,           DexScreener prices,        ▼
      ▼                age, cooldown,       with slippage + fees)   dashboard
 real DexScreener      max positions)                                (web UI)
@@ -28,7 +28,8 @@ market data                                                            ▲
 |---|---|
 | Market data (price, liquidity, volume, pair age) | **Real** — pulled live from the public [DexScreener API](https://docs.dexscreener.com/api/reference), no key needed |
 | Trade fills (slippage, fees) | **Simulated**, but modeled on the actual liquidity of the real pair, so a thin pool gets realistically worse fills than a deep one |
-| Twitter/X hype signal | **Simulated** by default — see below. A real X API adapter exists and is a one-line switch away once you have API access |
+| Twitter/X hype signal | **Simulated** by default — see below. A real X API adapter (and a browser-scraper fallback) exists and is a one-line switch away |
+| Reddit hype signal | **Off by default**, real data once enabled — free official API, scans configurable subreddits for token mentions, runs alongside whichever Twitter/X source is active. See [Reddit](#reddit-free-official-api-no-scraping) |
 | Rug-pull screening | **Real** — [RugCheck.xyz](https://rugcheck.xyz) checked before every buy (mint/freeze authority, LP lock, holder risk), plus liquidity/FDV and price-spike heuristics from DexScreener data |
 | Trade-quality ML model | **Off by default** — trains on the bot's own closed-trade history once there's enough of it; see [Machine learning](#machine-learning) |
 | Money | **Simulated** ("paper" mode) by default. A real Solana execution path exists (`--live`) but is off by default and hard-gated — see [Going live](#going-live) |
@@ -105,7 +106,47 @@ will say so clearly (`X session expired or invalid`) — just re-run
 
 **Precedence**: a real `TWITTER_BEARER_TOKEN` in `.env` always wins over the
 scraper if both are configured; the scraper wins over the simulated feed if
-enabled. Only one signal source runs at a time.
+enabled. Only one of these three Twitter/X sources runs at a time — but
+Reddit (below) runs *alongside* whichever one is active, not instead of it.
+
+### Reddit (free, official API, no scraping)
+
+Unlike Twitter/X, Reddit has a free official API, so there's no ToS-violation
+risk or throwaway-account dance here — this one is safe to just turn on.
+`RedditSource` (`memecoin_trader/signals/reddit_source.py`) scans the
+subreddits listed in `signals.reddit.subreddits` in `config.yaml` (defaults:
+r/CryptoMoonShots, r/solana, r/SatoshiStreetBets, r/CryptoCurrency,
+r/pumpfun) for token mentions, scoring by each post's upvotes and comment
+count the same way the official Twitter API source scores by likes/retweets.
+
+**Setup:**
+1. Create a Reddit account if you don't have one (your normal account is
+   fine — this only reads public posts, no account automation involved).
+2. Go to https://www.reddit.com/prefs/apps, click "create app", choose
+   **script**, and fill in any name/description (redirect URI can be
+   `http://localhost:8080`).
+3. Copy the client ID (the string under the app's name) and secret into
+   `.env`:
+   ```
+   REDDIT_CLIENT_ID=...
+   REDDIT_CLIENT_SECRET=...
+   ```
+4. Set `signals.reddit.enabled: true` in `config.yaml` and restart the bot.
+
+Both this and the active Twitter/X source feed the same entry strategy, rug
+checks, and ML gate — a token still has to clear all of that regardless of
+which platform flagged it first.
+
+**Not integrated, and why:** Truth Social has no public API either, so
+scanning it would mean the same throwaway-account browser scraping as
+Twitter/X, for a platform with much less crypto-trading chatter — not worth
+repeating that risk for. Token Sniffer only scans EVM chains (Ethereum,
+BSC, etc.) and can't check Solana tokens, which is what this bot trades —
+RugCheck.xyz (already integrated) covers the Solana-specific equivalent
+(mint/freeze authority, LP locks). GMGN.AI has no public API either, only
+private endpoints that would need reverse-engineering. Photon and BullX are
+trading terminals/UI, not data providers — they don't expose anything this
+bot doesn't already get from DexScreener.
 
 ### Why the simulation should be trusted
 
@@ -501,6 +542,8 @@ memecoin_trader/
     mock_source.py        simulated hype feed over real trending tokens
     twitter_source.py     real X API v2 adapter (needs TWITTER_BEARER_TOKEN)
     twitter_scraper_source.py  real X via browser automation (needs a throwaway account + session)
+    reddit_source.py       real Reddit via its free official API (needs REDDIT_CLIENT_ID/SECRET)
+    composite_source.py    merges multiple signal sources (e.g. Twitter + Reddit) into one
   market/
     dexscreener.py        real public market data client
     rugcheck.py            RugCheck.xyz pre-trade safety client

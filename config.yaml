@@ -77,3 +77,16 @@ signals:
     headless: true
     max_tweets_per_poll: 25
     mention_cooldown_minutes: 30       # don't re-signal the same token more often than this
+  reddit:
+    # Real Reddit via its free, official API — runs alongside whichever
+    # Twitter source is active above (not instead of it). See README's
+    # "Reddit" section for how to get REDDIT_CLIENT_ID/REDDIT_CLIENT_SECRET.
+    enabled: false
+    subreddits:
+      - CryptoMoonShots
+      - solana
+      - SatoshiStreetBets
+      - CryptoCurrency
+      - pumpfun
+    max_posts_per_poll: 25
+    mention_cooldown_minutes: 30       # don't re-signal the same token more often than this
