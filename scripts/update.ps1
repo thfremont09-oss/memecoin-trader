@@ -3,6 +3,16 @@
 # you're told there's an update to grab:
 #
 #   powershell -ExecutionPolicy Bypass -File .\scripts\update.ps1
+#
+# Add -Reset to also wipe all simulated trade history and restart from
+# config.yaml's starting_balance_usd (e.g. after changing that number, or
+# switching to a new hype-signal source and wanting a clean run):
+#
+#   powershell -ExecutionPolicy Bypass -File .\scripts\update.ps1 -Reset
+
+param(
+    [switch]$Reset
+)
 
 $repoRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $repoRoot
@@ -60,6 +70,15 @@ foreach ($task in $tasks) {
 
 Start-Sleep -Seconds 1
 Stop-OrphanedBotProcesses
+
+if ($Reset) {
+    Write-Host "Resetting simulation: wiping trade history, restarting from config.yaml's starting balance..."
+    & $venvPython -m memecoin_trader.cli reset --yes
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Reset failed (see above) -- not restarting the tasks until that's resolved."
+        exit 1
+    }
+}
 
 foreach ($task in $tasks) {
     if (-not (Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue)) {

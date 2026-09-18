@@ -51,6 +51,7 @@ def build_engine(conn):
 
 def test_full_cycle_buy_then_stop_loss_sell(conn):
     engine, signal_source, market = build_engine(conn)
+    initial_cash = engine.ledger.get_cash_usd()
     token = "TOKEN1111111111111111111111111111111111111"
 
     market.pairs[token] = make_pair(token_address=token, price_usd="1.0")
@@ -60,7 +61,7 @@ def test_full_cycle_buy_then_stop_loss_sell(conn):
 
     positions = engine.ledger.get_open_positions()
     assert len(positions) == 1
-    assert engine.ledger.get_cash_usd() < Decimal("100")
+    assert engine.ledger.get_cash_usd() < initial_cash
 
     # price crashes 30% -> stop loss should fire
     market.pairs[token] = make_pair(token_address=token, price_usd="0.70")
@@ -76,11 +77,12 @@ def test_full_cycle_buy_then_stop_loss_sell(conn):
     engine._record_equity()
     curve = engine.ledger.get_equity_curve()
     assert len(curve) == 1
-    assert curve[0]["equity_usd"] < 100.0  # lost money net of fees+slippage, as expected
+    assert curve[0]["equity_usd"] < float(initial_cash)  # lost money net of fees+slippage, as expected
 
 
 def test_low_quality_signal_is_rejected_and_logged(conn):
     engine, signal_source, market = build_engine(conn)
+    initial_cash = engine.ledger.get_cash_usd()
     token = "TOKEN2222222222222222222222222222222222222"
 
     market.pairs[token] = make_pair(token_address=token, price_usd="1.0", liquidity_usd="100")
@@ -89,7 +91,7 @@ def test_low_quality_signal_is_rejected_and_logged(conn):
     engine._poll_signals()
 
     assert engine.ledger.get_open_positions() == []
-    assert engine.ledger.get_cash_usd() == Decimal("100")
+    assert engine.ledger.get_cash_usd() == initial_cash
     signals_logged = engine.ledger.get_recent_signals()
     assert len(signals_logged) == 1
     assert signals_logged[0]["acted_on"] == 0
@@ -97,6 +99,7 @@ def test_low_quality_signal_is_rejected_and_logged(conn):
 
 def test_dangerous_rug_report_blocks_the_buy(conn):
     engine, signal_source, market = build_engine(conn)
+    initial_cash = engine.ledger.get_cash_usd()
     token = "TOKEN3333333333333333333333333333333333333"
 
     market.pairs[token] = make_pair(token_address=token, price_usd="1.0")
@@ -108,7 +111,7 @@ def test_dangerous_rug_report_blocks_the_buy(conn):
     engine._poll_signals()
 
     assert engine.ledger.get_open_positions() == []
-    assert engine.ledger.get_cash_usd() == Decimal("100")
+    assert engine.ledger.get_cash_usd() == initial_cash
 
 
 def test_successful_buy_stores_trade_features_for_training(conn):

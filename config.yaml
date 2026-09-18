@@ -4,7 +4,7 @@
 mode: paper  # paper | live  (live also requires env safety flags, see README)
 
 portfolio:
-  starting_balance_usd: 100.0
+  starting_balance_usd: 300.0
 
 chain:
   id: solana
@@ -15,20 +15,20 @@ timing:
   signal_poll_interval_seconds: 45   # how often we check Twitter/mock feed for new hype
   position_check_interval_seconds: 20 # how often we refresh price for open positions
   equity_snapshot_interval_seconds: 30 # how often we record equity for the dashboard chart
-  token_cooldown_minutes: 60         # don't re-buy a token this soon after selling it
+  token_cooldown_minutes: 45         # don't re-buy a token this soon after selling it (was 60 — loosened)
 
 entry:
-  mention_score_threshold: 55.0      # 0-100 hype score required to consider a buy
-  min_liquidity_usd: 5000
+  mention_score_threshold: 45.0      # 0-100 hype score required to consider a buy (was 55 — loosened, accepts weaker hype)
+  min_liquidity_usd: 3500            # was 5000 — loosened
   min_volume_24h_usd: 10000
-  min_pair_age_minutes: 5            # avoid the first few minutes (sniper/instant-rug risk)
+  min_pair_age_minutes: 5            # avoid the first few minutes (sniper/instant-rug risk) — left alone on purpose, this is a safety filter
   max_pair_age_hours: 72             # only chase fresh hype, not old coins
-  max_open_positions: 4
+  max_open_positions: 6              # was 4 — raised to spread the bigger $300 bankroll across more bets
   position_size_pct_of_cash: 0.20    # fraction of *current cash* per new trade
   min_trade_usd: 5.0
-  max_trade_usd: 40.0
-  min_liquidity_to_fdv_pct: 2.0      # skip tokens whose liquidity is a razor-thin sliver of their reported valuation (easy to manipulate/rug)
-  max_price_change_5m_pct: 150.0     # skip tokens that already spiked this hard in the last 5 minutes (chasing the top of a pump)
+  max_trade_usd: 60.0                # was 40 — raised so position sizing can use the bigger bankroll
+  min_liquidity_to_fdv_pct: 2.0      # skip tokens whose liquidity is a razor-thin sliver of their reported valuation (easy to manipulate/rug) — left alone, safety filter
+  max_price_change_5m_pct: 180.0     # was 150 — loosened, willing to chase slightly hotter pumps
 
   rug_check:
     enabled: true                    # query RugCheck.xyz before buying
@@ -42,10 +42,10 @@ entry:
     min_training_trades: 30          # `train` refuses to produce a model with fewer closed trades than this
 
 exit:
-  stop_loss_pct: 0.25                # sell all if price drops 25% from entry
+  stop_loss_pct: 0.30                # was 0.25 — loosened, gives trades a bit more room before cutting losses
   take_profit_pct: 0.50              # first take-profit trigger
   take_profit_sell_fraction: 0.5     # sell this fraction of the position at take-profit
-  trailing_stop_pct: 0.20            # after that, trail the peak by this much
+  trailing_stop_pct: 0.25            # was 0.20 — loosened, lets winners run a bit further before trailing exit
   max_hold_minutes: 240              # force exit after this long regardless
   liquidity_rug_fraction: 0.4        # emergency exit if liquidity falls below this fraction of entry liquidity
   sudden_liquidity_drop_pct: 0.5     # emergency exit if liquidity drops this much between two consecutive checks, even if still above the entry-relative floor above
@@ -81,7 +81,10 @@ signals:
     # Real Reddit via its free, official API — runs alongside whichever
     # Twitter source is active above (not instead of it). See README's
     # "Reddit" section for how to get REDDIT_CLIENT_ID/REDDIT_CLIENT_SECRET.
-    enabled: false
+    # Enabled by default now, but has no effect until those two env vars are
+    # set — the engine logs a warning and falls back to Twitter/mock alone
+    # if they're missing.
+    enabled: true
     subreddits:
       - CryptoMoonShots
       - solana

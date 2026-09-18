@@ -483,6 +483,17 @@ exit thresholds (stop-loss %, take-profit %, trailing stop %, max hold
 time), and the simulated slippage/fee model. Secrets (API keys, wallet key)
 go in `.env`, never in `config.yaml`.
 
+After changing `portfolio.starting_balance_usd` or anything else you want
+the simulation to reflect from a clean slate, wipe the old trade history and
+restart from the new numbers with:
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\update.ps1 -Reset
+```
+(or `python -m memecoin_trader.cli reset --yes` directly if you're not using
+the 24/7 Windows setup). This permanently deletes all simulated trades,
+positions, and equity history — the starting cash is the only thing carried
+forward, from `config.yaml`.
+
 ## Going live
 
 Real trading is implemented (`memecoin_trader/execution/live_executor.py`,
