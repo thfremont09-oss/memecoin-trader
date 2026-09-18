@@ -21,9 +21,34 @@ $dataDir = Join-Path $repoRoot "data"
 New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
 $watchdogLog = Join-Path $dataDir "dashboard_watchdog.log"
 
-while ($true) {
-    "$(Get-Date -Format o) [watchdog] starting dashboard" | Add-Content -Path $watchdogLog
-    & $venvPython -u -m memecoin_trader.cli dashboard --host 127.0.0.1 --port 8787 *>> $watchdogLog
-    "$(Get-Date -Format o) [watchdog] dashboard exited (code $LASTEXITCODE); restarting in 5s" | Add-Content -Path $watchdogLog
-    Start-Sleep -Seconds 5
+# See run_engine_forever.ps1 for why this mutex exists: prevents two copies
+# of this script (e.g. Task Scheduler's + a manually-launched one) from
+# fighting over the same log file, which causes silent-looking IOExceptions.
+$mutex = New-Object System.Threading.Mutex($false, "Global\MemecoinTraderDashboardWatchdog")
+if (-not $mutex.WaitOne(0)) {
+    Write-Error "Another copy of run_dashboard_forever.ps1 is already running. Not starting a second one -- stop that one first (Task Scheduler, or Ctrl+C its window)."
+    exit 1
+}
+
+function Write-WatchdogLog {
+    param([string]$Message)
+    for ($i = 0; $i -lt 5; $i++) {
+        try {
+            $Message | Add-Content -Path $watchdogLog -ErrorAction Stop
+            return
+        } catch {
+            Start-Sleep -Milliseconds 300
+        }
+    }
+}
+
+try {
+    while ($true) {
+        Write-WatchdogLog "$(Get-Date -Format o) [watchdog] starting dashboard"
+        & $venvPython -u -m memecoin_trader.cli dashboard --host 127.0.0.1 --port 8787 *>> $watchdogLog
+        Write-WatchdogLog "$(Get-Date -Format o) [watchdog] dashboard exited (code $LASTEXITCODE); restarting in 5s"
+        Start-Sleep -Seconds 5
+    }
+} finally {
+    $mutex.ReleaseMutex()
 }

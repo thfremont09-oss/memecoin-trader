@@ -16,9 +16,36 @@ $dataDir = Join-Path $repoRoot "data"
 New-Item -ItemType Directory -Force -Path $dataDir | Out-Null
 $watchdogLog = Join-Path $dataDir "engine_watchdog.log"
 
-while ($true) {
-    "$(Get-Date -Format o) [watchdog] starting engine" | Add-Content -Path $watchdogLog
-    & $venvPython -u -m memecoin_trader.cli run *>> $watchdogLog
-    "$(Get-Date -Format o) [watchdog] engine exited (code $LASTEXITCODE); restarting in 5s" | Add-Content -Path $watchdogLog
-    Start-Sleep -Seconds 5
+# Guards against two copies of this script fighting over the same log file
+# (e.g. a Task-Scheduler-managed instance plus someone manually running this
+# file directly) -- that collision causes IOExceptions on every log write and
+# looks like the engine is silently doing nothing. Automatically released if
+# the owning process exits or crashes, so no stale-lock cleanup is needed.
+$mutex = New-Object System.Threading.Mutex($false, "Global\MemecoinTraderEngineWatchdog")
+if (-not $mutex.WaitOne(0)) {
+    Write-Error "Another copy of run_engine_forever.ps1 is already running. Not starting a second one -- stop that one first (Task Scheduler, or Ctrl+C its window)."
+    exit 1
+}
+
+function Write-WatchdogLog {
+    param([string]$Message)
+    for ($i = 0; $i -lt 5; $i++) {
+        try {
+            $Message | Add-Content -Path $watchdogLog -ErrorAction Stop
+            return
+        } catch {
+            Start-Sleep -Milliseconds 300
+        }
+    }
+}
+
+try {
+    while ($true) {
+        Write-WatchdogLog "$(Get-Date -Format o) [watchdog] starting engine"
+        & $venvPython -u -m memecoin_trader.cli run *>> $watchdogLog
+        Write-WatchdogLog "$(Get-Date -Format o) [watchdog] engine exited (code $LASTEXITCODE); restarting in 5s"
+        Start-Sleep -Seconds 5
+    }
+} finally {
+    $mutex.ReleaseMutex()
 }
