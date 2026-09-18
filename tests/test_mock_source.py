@@ -3,7 +3,7 @@ from unittest.mock import MagicMock
 from memecoin_trader.config import MockSignalConfig
 from memecoin_trader.signals.mock_source import MockTwitterSource
 
-CONFIG = MockSignalConfig(trending_refresh_minutes=10, max_signals_per_poll=3)
+CONFIG = MockSignalConfig(trending_refresh_minutes=10, max_signals_per_poll=3, run_alongside_real=False)
 
 
 def test_poll_returns_empty_when_no_trending_pool_available():

@@ -64,6 +64,7 @@ signals:
   mock:
     trending_refresh_minutes: 10     # how often the mock source refreshes its pool of real trending tokens
     max_signals_per_poll: 3
+    run_alongside_real: true         # also run this synthetic feed even when a real source (scraper/API) is active, on top of real trending Solana tokens
   twitter:
     query: "(pump.fun OR \"just launched\" OR $SOL) (moon OR pump OR gem OR 100x) -is:retweet lang:en"
     max_results_per_poll: 25

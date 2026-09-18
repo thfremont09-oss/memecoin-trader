@@ -106,8 +106,17 @@ will say so clearly (`X session expired or invalid`) — just re-run
 
 **Precedence**: a real `TWITTER_BEARER_TOKEN` in `.env` always wins over the
 scraper if both are configured; the scraper wins over the simulated feed if
-enabled. Only one of these three Twitter/X sources runs at a time — but
-Reddit (below) runs *alongside* whichever one is active, not instead of it.
+enabled. Only one of these three Twitter/X sources is the "primary" one — but
+Reddit (below) runs *alongside* whichever one is active, not instead of it,
+and so does the simulated feed if `signals.mock.run_alongside_real: true`
+(the default): even once a real source is live, the bot keeps generating
+synthetic hype signals on top of real trending Solana tokens too, purely to
+keep trade volume up for testing. **Worth knowing:** any trade the mock feed
+triggers was acted on because of made-up hype text, not a real signal — it's
+clearly logged as `source: twitter_mock` (and the excerpt is prefixed
+`[SIMULATED]`) everywhere trades show up, so you can always tell which of
+your trades were real-signal-driven vs. synthetic. Set it to `false` if you'd
+rather only trade on real signals once you have one configured.
 
 ### Reddit (official API, approval required)
 

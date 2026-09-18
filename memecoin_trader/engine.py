@@ -53,6 +53,9 @@ def build_signal_source(settings: Settings, market_client: DexScreenerClient) ->
         primary = MockTwitterSource(config=settings.mock_signal, chain_id=settings.chain_id, client=market_client)
 
     sources = [primary]
+    if not isinstance(primary, MockTwitterSource) and settings.mock_signal.run_alongside_real:
+        logger.info("also running the simulated hype feed alongside %s (mock.run_alongside_real=true)", primary.name)
+        sources.append(MockTwitterSource(config=settings.mock_signal, chain_id=settings.chain_id, client=market_client))
     if settings.reddit_signal.enabled:
         if not (settings.secrets.reddit_client_id and settings.secrets.reddit_client_secret):
             logger.warning(

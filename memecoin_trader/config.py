@@ -90,6 +90,7 @@ class LiveExecutionConfig:
 class MockSignalConfig:
     trending_refresh_minutes: float
     max_signals_per_poll: int
+    run_alongside_real: bool
 
 
 @dataclass(frozen=True)
