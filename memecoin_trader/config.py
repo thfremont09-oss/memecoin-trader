@@ -117,11 +117,26 @@ class RedditSignalConfig:
 
 
 @dataclass(frozen=True)
+class PumpFunSignalConfig:
+    enabled: bool
+    min_age_minutes: float
+    max_buffer_minutes: float
+
+
+@dataclass(frozen=True)
+class BirdeyeSignalConfig:
+    enabled: bool
+    limit: int
+    mention_cooldown_minutes: float
+
+
+@dataclass(frozen=True)
 class Secrets:
     twitter_bearer_token: str | None
     reddit_client_id: str | None
     reddit_client_secret: str | None
     reddit_user_agent: str
+    birdeye_api_key: str | None
     solana_private_key: str | None
     solana_rpc_url: str
     live_trading_confirmed: bool
@@ -141,6 +156,8 @@ class Settings:
     twitter_signal: TwitterSignalConfig
     scraper_signal: ScraperSignalConfig
     reddit_signal: RedditSignalConfig
+    pumpfun_signal: PumpFunSignalConfig
+    birdeye_signal: BirdeyeSignalConfig
     secrets: Secrets
     raw: dict[str, Any] = field(repr=False)
 
@@ -173,12 +190,15 @@ def load_settings(config_path: Path | None = None, env_path: Path | None = None)
     twitter_signal = TwitterSignalConfig(**raw["signals"]["twitter"])
     scraper_signal = ScraperSignalConfig(**raw["signals"]["scraper"])
     reddit_signal = RedditSignalConfig(**raw["signals"]["reddit"])
+    pumpfun_signal = PumpFunSignalConfig(**raw["signals"]["pumpfun"])
+    birdeye_signal = BirdeyeSignalConfig(**raw["signals"]["birdeye"])
 
     secrets = Secrets(
         twitter_bearer_token=os.environ.get("TWITTER_BEARER_TOKEN") or None,
         reddit_client_id=os.environ.get("REDDIT_CLIENT_ID") or None,
         reddit_client_secret=os.environ.get("REDDIT_CLIENT_SECRET") or None,
         reddit_user_agent=os.environ.get("REDDIT_USER_AGENT", "memecoin-trader-bot/1.0"),
+        birdeye_api_key=os.environ.get("BIRDEYE_API_KEY") or None,
         solana_private_key=os.environ.get("SOLANA_PRIVATE_KEY") or None,
         solana_rpc_url=os.environ.get("SOLANA_RPC_URL", "https://api.mainnet-beta.solana.com"),
         live_trading_confirmed=os.environ.get("I_UNDERSTAND_LIVE_TRADING_RISK", "").strip().lower()
@@ -198,6 +218,8 @@ def load_settings(config_path: Path | None = None, env_path: Path | None = None)
         twitter_signal=twitter_signal,
         scraper_signal=scraper_signal,
         reddit_signal=reddit_signal,
+        pumpfun_signal=pumpfun_signal,
+        birdeye_signal=birdeye_signal,
         secrets=secrets,
         raw=raw,
     )

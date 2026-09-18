@@ -94,3 +94,26 @@ signals:
       - pumpfun
     max_posts_per_poll: 25
     mention_cooldown_minutes: 30       # don't re-signal the same token more often than this
+  pumpfun:
+    # Free, no-key WebSocket feed of pump.fun token launches (PumpPortal's
+    # public data API: wss://pumpportal.fun/api/data) -- literal on-chain
+    # "a token was just created" events, not social hype. This is the
+    # highest rug/scam-risk category on Solana (most pump.fun launches are
+    # abandoned or scams within minutes), so it's off by default and, even
+    # when on, a launch still has to sit in a buffer for min_age_minutes and
+    # then clear every existing filter (liquidity, RugCheck, ML gate) like
+    # any other signal before a buy happens -- this just adds launches to
+    # the candidate pool earlier than social chatter would surface them.
+    # See README's "pump.fun launch feed" section before enabling.
+    enabled: false
+    min_age_minutes: 8                 # buffer a launch this long before considering it (keep >= entry.min_pair_age_minutes)
+    max_buffer_minutes: 120            # give up on a launch never re-checked within this long (probably dead / never got a DexScreener listing)
+  birdeye:
+    # Birdeye's free-tier trending-tokens API (https://docs.birdeye.so) --
+    # a third-party trending/momentum ranking, independent of DexScreener's
+    # own boosted-tokens list and of social hype. Needs a free API key (see
+    # README's "Birdeye" section for how to get BIRDEYE_API_KEY) but no
+    # multi-week approval like Reddit now requires.
+    enabled: true
+    limit: 20                          # how many top-ranked trending tokens to fetch per poll
+    mention_cooldown_minutes: 30       # don't re-signal the same token more often than this

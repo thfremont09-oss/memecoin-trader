@@ -30,6 +30,8 @@ market data                                                            ▲
 | Trade fills (slippage, fees) | **Simulated**, but modeled on the actual liquidity of the real pair, so a thin pool gets realistically worse fills than a deep one |
 | Twitter/X hype signal | **Simulated** by default — see below. A real X API adapter (and a browser-scraper fallback) exists and is a one-line switch away |
 | Reddit hype signal | **Enabled but inert until credentialed** — official API, but Reddit now requires a manual, multi-week approval before you can get a key (no more instant self-serve). Runs alongside whichever Twitter/X source is active once set up. See [Reddit](#reddit-official-api-approval-required) |
+| Birdeye trending signal | **Enabled but inert until credentialed** — free API key, self-serve, no approval wait. Third-party momentum ranking, runs alongside everything else. See [Birdeye](#birdeye-trending-tokens-free-api-key-no-approval-wait) |
+| pump.fun launch signal | **Off by default** — free, no-key, real-time on-chain launch feed; highest rug-risk category, so opt-in only. See [pump.fun launch feed](#pumpfun-launch-feed-free-no-key--off-by-default-use-with-caution) |
 | Rug-pull screening | **Real** — [RugCheck.xyz](https://rugcheck.xyz) checked before every buy (mint/freeze authority, LP lock, holder risk), plus liquidity/FDV and price-spike heuristics from DexScreener data |
 | Trade-quality ML model | **Off by default** — trains on the bot's own closed-trade history once there's enough of it; see [Machine learning](#machine-learning) |
 | Money | **Simulated** ("paper" mode) by default. A real Solana execution path exists (`--live`) but is off by default and hard-gated — see [Going live](#going-live) |
@@ -154,6 +156,57 @@ more just clicking "create app" and getting keys immediately.
 Both this and the active Twitter/X source feed the same entry strategy, rug
 checks, and ML gate — a token still has to clear all of that regardless of
 which platform flagged it first.
+
+### Birdeye trending tokens (free API key, no approval wait)
+
+`BirdeyeTrendingSource` (`memecoin_trader/signals/birdeye_source.py`) polls
+[Birdeye's](https://docs.birdeye.so) free trending-tokens endpoint —
+a third-party momentum ranking independent of DexScreener's own
+boosted-tokens list (which the mock feed uses) and of any social-media
+signal. It's on by default in `config.yaml` but, like Reddit, does nothing
+without a key.
+
+**Setup:**
+1. Go to https://birdeye.so/data-api, sign up, and generate a free API key
+   — self-serve, no approval wait (unlike Reddit's current process).
+2. Add it to `.env`:
+   ```
+   BIRDEYE_API_KEY=...
+   ```
+3. Restart the bot. No `config.yaml` change needed — `signals.birdeye.enabled`
+   is already `true`.
+
+Tokens are scored by their Birdeye rank (rank 1 = highest score), so the
+top ~15-20 trending tokens are the ones actually likely to clear
+`entry.mention_score_threshold`. This response shape is taken from
+Birdeye's public docs, not verified live from the sandbox this was built
+in — if it comes back empty, check the logs for a shape-mismatch warning.
+
+### pump.fun launch feed (free, no key — off by default, use with caution)
+
+`PumpFunLaunchSource` (`memecoin_trader/signals/pumpfun_source.py`) connects
+to [PumpPortal's](https://pumpportal.fun) free public WebSocket
+(`wss://pumpportal.fun/api/data`, no key, no cost) and watches pump.fun
+token-creation events in real time — literally "a token was just launched,"
+not social hype about an existing one. It's the earliest possible discovery
+signal, and also the **highest rug/scam-risk category on Solana** — most
+pump.fun launches are abandoned or drained within minutes. Because of that
+it's **off by default**.
+
+It doesn't treat a launch as tradeable the moment it sees it: each new mint
+sits in an in-memory buffer for `signals.pumpfun.min_age_minutes` (default
+8, kept above `entry.min_pair_age_minutes`) before it's even emitted as a
+signal, and from there it still has to clear every other filter — liquidity,
+RugCheck, the ML gate — exactly like a Twitter- or Reddit-sourced signal
+does. A launch that never gets a real DexScreener listing within
+`signals.pumpfun.max_buffer_minutes` (default 120) is quietly dropped, not
+bought.
+
+**To enable:** set `signals.pumpfun.enabled: true` in `config.yaml` and
+restart — no API key needed. PumpPortal's exact message schema (`mint`,
+`symbol`, `name` fields) is taken from its public docs/community examples,
+not verified live from this sandbox; watch the logs the first time it runs
+for real.
 
 **Not integrated, and why:** Truth Social has no public API either, so
 scanning it would mean the same throwaway-account browser scraping as
@@ -571,8 +624,10 @@ memecoin_trader/
     mock_source.py        simulated hype feed over real trending tokens
     twitter_source.py     real X API v2 adapter (needs TWITTER_BEARER_TOKEN)
     twitter_scraper_source.py  real X via browser automation (needs a throwaway account + session)
-    reddit_source.py       real Reddit via its free official API (needs REDDIT_CLIENT_ID/SECRET)
-    composite_source.py    merges multiple signal sources (e.g. Twitter + Reddit) into one
+    reddit_source.py       real Reddit via its free official API (needs approval + REDDIT_CLIENT_ID/SECRET)
+    birdeye_source.py      Birdeye's free trending-tokens API (needs BIRDEYE_API_KEY)
+    pumpfun_source.py      pump.fun launches via PumpPortal's free WebSocket (off by default, no key needed)
+    composite_source.py    merges multiple signal sources (e.g. Twitter + Reddit + Birdeye) into one
   market/
     dexscreener.py        real public market data client
     rugcheck.py            RugCheck.xyz pre-trade safety client

@@ -75,6 +75,30 @@ def build_signal_source(settings: Settings, market_client: DexScreenerClient) ->
                 )
             )
 
+    if settings.pumpfun_signal.enabled:
+        from memecoin_trader.signals.pumpfun_source import PumpFunLaunchSource
+
+        logger.info("adding pump.fun launch signal source alongside %s", primary.name)
+        sources.append(PumpFunLaunchSource(config=settings.pumpfun_signal, chain_id=settings.chain_id))
+
+    if settings.birdeye_signal.enabled:
+        if not settings.secrets.birdeye_api_key:
+            logger.warning(
+                "signals.birdeye.enabled is true but BIRDEYE_API_KEY is not set — "
+                "skipping the Birdeye trending signal source"
+            )
+        else:
+            from memecoin_trader.signals.birdeye_source import BirdeyeTrendingSource
+
+            logger.info("adding Birdeye trending signal source alongside %s", primary.name)
+            sources.append(
+                BirdeyeTrendingSource(
+                    config=settings.birdeye_signal,
+                    api_key=settings.secrets.birdeye_api_key,
+                    chain_id=settings.chain_id,
+                )
+            )
+
     if len(sources) == 1:
         return sources[0]
     from memecoin_trader.signals.composite_source import CompositeSignalSource
