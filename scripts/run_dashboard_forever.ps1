@@ -23,7 +23,7 @@ $watchdogLog = Join-Path $dataDir "dashboard_watchdog.log"
 
 while ($true) {
     "$(Get-Date -Format o) [watchdog] starting dashboard" | Add-Content -Path $watchdogLog
-    & $venvPython -m memecoin_trader.cli dashboard --host 127.0.0.1 --port 8787 *>> $watchdogLog
+    & $venvPython -u -m memecoin_trader.cli dashboard --host 127.0.0.1 --port 8787 *>> $watchdogLog
     "$(Get-Date -Format o) [watchdog] dashboard exited (code $LASTEXITCODE); restarting in 5s" | Add-Content -Path $watchdogLog
     Start-Sleep -Seconds 5
 }

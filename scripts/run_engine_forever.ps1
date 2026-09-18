@@ -18,7 +18,7 @@ $watchdogLog = Join-Path $dataDir "engine_watchdog.log"
 
 while ($true) {
     "$(Get-Date -Format o) [watchdog] starting engine" | Add-Content -Path $watchdogLog
-    & $venvPython -m memecoin_trader.cli run *>> $watchdogLog
+    & $venvPython -u -m memecoin_trader.cli run *>> $watchdogLog
     "$(Get-Date -Format o) [watchdog] engine exited (code $LASTEXITCODE); restarting in 5s" | Add-Content -Path $watchdogLog
     Start-Sleep -Seconds 5
 }
