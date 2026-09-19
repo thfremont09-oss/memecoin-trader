@@ -250,23 +250,45 @@ extra screening before a buy, all configurable under `entry:` in
   can print unlimited supply), an active freeze authority (deployer can
   freeze your wallet's tokens), unlocked LP tokens (deployer can pull
   liquidity instantly), and other named risk flags. Any "danger"-level
-  finding blocks the trade by default (`entry.rug_check.max_danger_flags`).
+  finding blocks the trade by default (`entry.rug_check.max_danger_flags`),
+  and so does piling up too many smaller "warning"-level findings even with
+  zero danger flags (`entry.rug_check.max_warning_flags`, default 4). The
+  mint-authority and freeze-authority checks are also applied directly as
+  their own hard block (`mint_authority_renounced`/`freeze_authority_renounced`
+  is explicitly `False`) rather than relying only on RugCheck's own
+  danger/warning labeling of them — belt and suspenders on the two most
+  unambiguous rug vectors.
 - **Fails closed by default** (`entry.rug_check.fail_closed: true`): if the
   check errors out or the token isn't indexed yet, the trade is skipped
   rather than assumed safe. This means if RugCheck.xyz is ever unreachable,
   the bot will simply stop buying anything until it's reachable again —
   check the logs for `rug check unavailable` if entries seem to have
   stopped. Set `fail_closed: false` if you'd rather it trade through that.
-- **Liquidity-to-FDV ratio** (`entry.min_liquidity_to_fdv_pct`): skips
-  tokens whose liquidity is a razor-thin sliver of their reported
+- **LP-locked floor** (`entry.rug_check.min_lp_locked_pct`, default 65%):
+  requires at least this much LP actually locked/burned, when RugCheck
+  reports it — an unlocked pool means the deployer can pull all liquidity
+  whenever they want.
+- **Liquidity-to-FDV ratio** (`entry.min_liquidity_to_fdv_pct`, default 3%):
+  skips tokens whose liquidity is a razor-thin sliver of their reported
   valuation — an easy setup to manipulate or rug.
 - **Price-spike cap** (`entry.max_price_change_5m_pct`): skips tokens that
   already spiked hard in the last 5 minutes, so the bot isn't chasing the
   top of a pump.
-- **Sudden liquidity-drop exit** (`exit.sudden_liquidity_drop_pct`): for
-  positions already held, an emergency exit fires if liquidity drops sharply
-  between two consecutive checks — catching an in-progress rug faster than
-  waiting for the cumulative decline-from-entry check to cross its floor.
+- **Sudden liquidity-drop exit** (`exit.sudden_liquidity_drop_pct`, default
+  35%): for positions already held, an emergency exit fires if liquidity
+  drops sharply between two consecutive checks — catching an in-progress rug
+  faster than waiting for the cumulative decline-from-entry check
+  (`exit.liquidity_rug_fraction`, default 50%) to cross its floor.
+
+None of the above trades safety for trade volume — every extra signal
+source added still has to clear every one of these filters. The knobs that
+actually increase how often the bot trades are elsewhere: it polls signal
+sources more often (`timing.signal_poll_interval_seconds`, 30s), can hold
+more positions at once (`entry.max_open_positions`, 8), re-enters a
+previously-sold token sooner (`timing.token_cooldown_minutes`, 30min), and
+pulls a larger candidate list per poll from Reddit/Birdeye/the scraper. More
+candidates funneled through the same, now-tighter safety gate is the actual
+goal — not a looser gate.
 
 This integration is unverified against RugCheck's live API from the sandbox
 this was built in (its outbound network is restricted) — the parsing is

@@ -34,6 +34,7 @@ class RugCheckConfig:
     enabled: bool
     fail_closed: bool
     max_danger_flags: int
+    max_warning_flags: int
     min_lp_locked_pct: float
 
 

@@ -12,29 +12,30 @@ chain:
 # How often the engine does things, in seconds.
 timing:
   tick_seconds: 5                    # how often the main loop wakes up
-  signal_poll_interval_seconds: 45   # how often we check Twitter/mock feed for new hype
+  signal_poll_interval_seconds: 30   # was 45 — poll more often so real opportunities get caught sooner
   position_check_interval_seconds: 20 # how often we refresh price for open positions
   equity_snapshot_interval_seconds: 30 # how often we record equity for the dashboard chart
-  token_cooldown_minutes: 45         # don't re-buy a token this soon after selling it (was 60 — loosened)
+  token_cooldown_minutes: 30         # was 45 — re-enter a previously-sold token a bit sooner
 
 entry:
-  mention_score_threshold: 45.0      # 0-100 hype score required to consider a buy (was 55 — loosened, accepts weaker hype)
-  min_liquidity_usd: 3500            # was 5000 — loosened
+  mention_score_threshold: 45.0      # 0-100 hype score required to consider a buy
+  min_liquidity_usd: 3500
   min_volume_24h_usd: 10000
   min_pair_age_minutes: 5            # avoid the first few minutes (sniper/instant-rug risk) — left alone on purpose, this is a safety filter
   max_pair_age_hours: 72             # only chase fresh hype, not old coins
-  max_open_positions: 6              # was 4 — raised to spread the bigger $300 bankroll across more bets
+  max_open_positions: 8              # was 6 — more concurrent positions = more trade throughput from the same signal volume
   position_size_pct_of_cash: 0.20    # fraction of *current cash* per new trade
   min_trade_usd: 5.0
-  max_trade_usd: 60.0                # was 40 — raised so position sizing can use the bigger bankroll
-  min_liquidity_to_fdv_pct: 2.0      # skip tokens whose liquidity is a razor-thin sliver of their reported valuation (easy to manipulate/rug) — left alone, safety filter
-  max_price_change_5m_pct: 180.0     # was 150 — loosened, willing to chase slightly hotter pumps
+  max_trade_usd: 60.0
+  min_liquidity_to_fdv_pct: 3.0      # was 2.0 — raised, tighter floor against thin-liquidity manipulation/rugs
+  max_price_change_5m_pct: 180.0
 
   rug_check:
     enabled: true                    # query RugCheck.xyz before buying
     fail_closed: true                # if the check errors out or the token isn't indexed yet, skip the trade rather than assume it's safe
     max_danger_flags: 0              # any RugCheck "danger"-level finding blocks the trade by default
-    min_lp_locked_pct: 50.0          # require at least this much LP liquidity locked/burned, when reported
+    max_warning_flags: 4             # new: too many smaller warn-level findings stacked up blocks the trade too, even with zero danger flags
+    min_lp_locked_pct: 65.0          # was 50.0 — raised, requires more LP actually locked/burned before trusting a pool
 
   ml:
     enabled: false                   # off until a model has actually been trained (see `memecoin-trader train`)
@@ -47,8 +48,8 @@ exit:
   take_profit_sell_fraction: 0.5     # sell this fraction of the position at take-profit
   trailing_stop_pct: 0.25            # was 0.20 — loosened, lets winners run a bit further before trailing exit
   max_hold_minutes: 240              # force exit after this long regardless
-  liquidity_rug_fraction: 0.4        # emergency exit if liquidity falls below this fraction of entry liquidity
-  sudden_liquidity_drop_pct: 0.5     # emergency exit if liquidity drops this much between two consecutive checks, even if still above the entry-relative floor above
+  liquidity_rug_fraction: 0.5        # was 0.4 — raised, trips the emergency liquidity-rug exit sooner
+  sudden_liquidity_drop_pct: 0.35    # was 0.5 — lowered, trips on a smaller sudden drop so an in-progress rug gets caught faster
 
 execution:
   paper:
@@ -63,7 +64,7 @@ execution:
 signals:
   mock:
     trending_refresh_minutes: 10     # how often the mock source refreshes its pool of real trending tokens
-    max_signals_per_poll: 3
+    max_signals_per_poll: 4          # was 3
     run_alongside_real: true         # also run this synthetic feed even when a real source (scraper/API) is active, on top of real trending Solana tokens
   twitter:
     query: "(pump.fun OR \"just launched\" OR $SOL) (moon OR pump OR gem OR 100x) -is:retweet lang:en"
@@ -76,7 +77,7 @@ signals:
     enabled: false
     search_query: "(pump.fun OR \"just launched\" OR $SOL) (moon OR pump OR gem OR 100x) -filter:replies lang:en"
     headless: true
-    max_tweets_per_poll: 25
+    max_tweets_per_poll: 35            # was 25 — larger candidate pool per poll
     mention_cooldown_minutes: 30       # don't re-signal the same token more often than this
   reddit:
     # Real Reddit via its free, official API — runs alongside whichever
@@ -92,7 +93,7 @@ signals:
       - SatoshiStreetBets
       - CryptoCurrency
       - pumpfun
-    max_posts_per_poll: 25
+    max_posts_per_poll: 35             # was 25 — larger candidate pool per poll
     mention_cooldown_minutes: 30       # don't re-signal the same token more often than this
   pumpfun:
     # Free, no-key WebSocket feed of pump.fun token launches (PumpPortal's
@@ -115,5 +116,5 @@ signals:
     # README's "Birdeye" section for how to get BIRDEYE_API_KEY) but no
     # multi-week approval like Reddit now requires.
     enabled: true
-    limit: 20                          # how many top-ranked trending tokens to fetch per poll
+    limit: 30                          # was 20 — larger candidate pool per poll
     mention_cooldown_minutes: 30       # don't re-signal the same token more often than this

@@ -28,7 +28,7 @@ def ledger(conn):
 def make_pair(
     token_address: str = "TOKEN1111111111111111111111111111111111111",
     price_usd: str = "0.001",
-    liquidity_usd: str = "20000",
+    liquidity_usd: str = "50000",
     volume_24h_usd: str = "50000",
     age_minutes: float = 60,
     symbol: str = "MEME",

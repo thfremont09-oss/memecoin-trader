@@ -74,10 +74,21 @@ def evaluate_entry(
         else:
             if len(rug_report.danger_flags) > config.rug_check.max_danger_flags:
                 return None
+            if len(rug_report.warning_flags) > config.rug_check.max_warning_flags:
+                return None  # no single dealbreaker, but too many smaller red flags stacked up
             if (
                 rug_report.lp_locked_pct is not None
                 and rug_report.lp_locked_pct < config.rug_check.min_lp_locked_pct
             ):
+                return None
+            # Checked directly rather than relying solely on RugCheck's own
+            # danger/warning labeling for these two: an un-renounced mint
+            # authority (unlimited new supply) or an active freeze authority
+            # (deployer can freeze your wallet's tokens) are unambiguous
+            # rug vectors regardless of how RugCheck classifies them.
+            if rug_report.mint_authority_renounced is False:
+                return None
+            if rug_report.freeze_authority_renounced is False:
                 return None
 
     if config.ml.enabled and ml_confidence is not None:

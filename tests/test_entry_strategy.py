@@ -17,7 +17,9 @@ CONFIG = EntryConfig(
     max_trade_usd=40.0,
     min_liquidity_to_fdv_pct=0.0,
     max_price_change_5m_pct=100000.0,
-    rug_check=RugCheckConfig(enabled=False, fail_closed=True, max_danger_flags=0, min_lp_locked_pct=50.0),
+    rug_check=RugCheckConfig(
+        enabled=False, fail_closed=True, max_danger_flags=0, max_warning_flags=4, min_lp_locked_pct=50.0
+    ),
     ml=MlConfig(enabled=False, min_confidence=0.55, min_training_trades=30),
 )
 
@@ -189,6 +191,48 @@ def test_rug_check_fail_open_allows_when_report_unavailable():
     signal = make_signal(score=80)
     market = make_pair()
     assert evaluate_entry(signal, market, DEFAULT_CTX, config, rug_report=None) is not None
+
+
+def test_rug_check_blocks_too_many_warning_flags():
+    config = replace(CONFIG, rug_check=replace(CONFIG.rug_check, enabled=True, max_warning_flags=2))
+    signal = make_signal(score=80)
+    market = make_pair()
+    report = make_rug_report(danger_flags=(), warning_flags=("a", "b", "c"))
+    assert evaluate_entry(signal, market, DEFAULT_CTX, config, rug_report=report) is None
+
+
+def test_rug_check_allows_warning_flags_within_limit():
+    config = replace(CONFIG, rug_check=replace(CONFIG.rug_check, enabled=True, max_warning_flags=2))
+    signal = make_signal(score=80)
+    market = make_pair()
+    report = make_rug_report(danger_flags=(), warning_flags=("a", "b"))
+    assert evaluate_entry(signal, market, DEFAULT_CTX, config, rug_report=report) is not None
+
+
+def test_rug_check_blocks_unrenounced_mint_authority_even_without_danger_flag():
+    config = replace(CONFIG, rug_check=replace(CONFIG.rug_check, enabled=True))
+    signal = make_signal(score=80)
+    market = make_pair()
+    report = replace(make_rug_report(danger_flags=()), mint_authority_renounced=False)
+    assert evaluate_entry(signal, market, DEFAULT_CTX, config, rug_report=report) is None
+
+
+def test_rug_check_blocks_active_freeze_authority_even_without_danger_flag():
+    config = replace(CONFIG, rug_check=replace(CONFIG.rug_check, enabled=True))
+    signal = make_signal(score=80)
+    market = make_pair()
+    report = replace(make_rug_report(danger_flags=()), freeze_authority_renounced=False)
+    assert evaluate_entry(signal, market, DEFAULT_CTX, config, rug_report=report) is None
+
+
+def test_rug_check_allows_unknown_mint_freeze_authority_status():
+    config = replace(CONFIG, rug_check=replace(CONFIG.rug_check, enabled=True))
+    signal = make_signal(score=80)
+    market = make_pair()
+    report = replace(
+        make_rug_report(danger_flags=()), mint_authority_renounced=None, freeze_authority_renounced=None
+    )
+    assert evaluate_entry(signal, market, DEFAULT_CTX, config, rug_report=report) is not None
 
 
 def test_ml_gate_blocks_low_confidence_when_enabled():
