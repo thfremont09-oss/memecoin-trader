@@ -76,7 +76,13 @@ class PumpFunLaunchSource(SignalSource):
         backoff = INITIAL_RECONNECT_BACKOFF_SECONDS
         while not self._stop_event.is_set():
             try:
+                # `timeout` here only bounds the initial connect -- it also
+                # sets the socket's default timeout, so without clearing it
+                # afterwards, recv() below would raise a timeout (and look
+                # like a dropped connection) during any quiet stretch longer
+                # than this, even though the socket is perfectly fine.
                 ws = websocket.create_connection(WS_URL, timeout=10)
+                ws.settimeout(None)
                 try:
                     ws.send(SUBSCRIBE_MESSAGE)
                     logger.info("connected to pump.fun launch feed")
