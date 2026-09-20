@@ -67,11 +67,18 @@ class EntryConfig:
 
 
 @dataclass(frozen=True)
+class TrailingStopTier:
+    peak_gain_pct: float
+    trailing_stop_pct: float
+
+
+@dataclass(frozen=True)
 class ExitConfig:
     stop_loss_pct: float
     take_profit_pct: float
     take_profit_sell_fraction: float
     trailing_stop_pct: float
+    trailing_stop_tiers: list[TrailingStopTier]
     max_hold_minutes: float
     liquidity_rug_fraction: float
     sudden_liquidity_drop_pct: float
@@ -130,6 +137,13 @@ class PumpFunSignalConfig:
 
 @dataclass(frozen=True)
 class BirdeyeSignalConfig:
+    enabled: bool
+    limit: int
+    mention_cooldown_minutes: float
+
+
+@dataclass(frozen=True)
+class RaydiumSignalConfig:
     enabled: bool
     limit: int
     mention_cooldown_minutes: float
@@ -202,6 +216,7 @@ class Settings:
     reddit_signal: RedditSignalConfig
     pumpfun_signal: PumpFunSignalConfig
     birdeye_signal: BirdeyeSignalConfig
+    raydium_signal: RaydiumSignalConfig
     dexscreener_boosts_signal: DexScreenerBoostsSignalConfig
     geckoterminal_signal: GeckoTerminalSignalConfig
     bluesky_signal: BlueskySignalConfig
@@ -232,7 +247,9 @@ def load_settings(config_path: Path | None = None, env_path: Path | None = None)
     rug_check = RugCheckConfig(**entry_raw.pop("rug_check"))
     ml = MlConfig(**entry_raw.pop("ml"))
     entry = EntryConfig(rug_check=rug_check, ml=ml, **entry_raw)
-    exit_cfg = ExitConfig(**raw["exit"])
+    exit_raw = dict(raw["exit"])
+    trailing_stop_tiers = [TrailingStopTier(**t) for t in exit_raw.pop("trailing_stop_tiers", [])]
+    exit_cfg = ExitConfig(trailing_stop_tiers=trailing_stop_tiers, **exit_raw)
     paper_exec = PaperExecutionConfig(**raw["execution"]["paper"])
     live_exec = LiveExecutionConfig(**raw["execution"]["live"])
     mock_signal = MockSignalConfig(**raw["signals"]["mock"])
@@ -241,6 +258,7 @@ def load_settings(config_path: Path | None = None, env_path: Path | None = None)
     reddit_signal = RedditSignalConfig(**raw["signals"]["reddit"])
     pumpfun_signal = PumpFunSignalConfig(**raw["signals"]["pumpfun"])
     birdeye_signal = BirdeyeSignalConfig(**raw["signals"]["birdeye"])
+    raydium_signal = RaydiumSignalConfig(**raw["signals"]["raydium"])
     dexscreener_boosts_signal = DexScreenerBoostsSignalConfig(**raw["signals"]["dexscreener_boosts"])
     geckoterminal_signal = GeckoTerminalSignalConfig(**raw["signals"]["geckoterminal"])
     bluesky_signal = BlueskySignalConfig(**raw["signals"]["bluesky"])
@@ -275,6 +293,7 @@ def load_settings(config_path: Path | None = None, env_path: Path | None = None)
         reddit_signal=reddit_signal,
         pumpfun_signal=pumpfun_signal,
         birdeye_signal=birdeye_signal,
+        raydium_signal=raydium_signal,
         dexscreener_boosts_signal=dexscreener_boosts_signal,
         geckoterminal_signal=geckoterminal_signal,
         bluesky_signal=bluesky_signal,

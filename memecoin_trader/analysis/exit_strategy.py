@@ -21,6 +21,20 @@ class ExitDecision:
     mark_take_profit_taken: bool = False
 
 
+def _trailing_stop_pct_for(peak_gain_pct: Decimal, config: ExitConfig) -> Decimal:
+    """The trailing stop tightens as a position's best-ever gain grows ("run
+    away when profits get maximized") -- returns the tightest
+    trailing_stop_pct among every tier whose peak_gain_pct threshold the
+    position has reached, or the flat baseline if none has."""
+    best = Decimal(str(config.trailing_stop_pct))
+    for tier in config.trailing_stop_tiers:
+        if peak_gain_pct >= Decimal(str(tier.peak_gain_pct)):
+            tier_pct = Decimal(str(tier.trailing_stop_pct))
+            if tier_pct < best:
+                best = tier_pct
+    return best
+
+
 def evaluate_exit(
     position: Position,
     current_price_usd: Decimal,
@@ -61,8 +75,10 @@ def evaluate_exit(
         )
 
     if position.peak_price_usd > entry:
+        peak_gain_pct = (position.peak_price_usd - entry) / entry
+        trailing_stop_pct = _trailing_stop_pct_for(peak_gain_pct, config)
         drawdown_from_peak = (position.peak_price_usd - current_price_usd) / position.peak_price_usd
-        if drawdown_from_peak >= Decimal(str(config.trailing_stop_pct)):
+        if drawdown_from_peak >= trailing_stop_pct:
             return ExitDecision(reason="trailing_stop", fraction=Decimal(1))
 
     held_minutes = (now - position.opened_at).total_seconds() / 60.0

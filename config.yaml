@@ -50,7 +50,19 @@ exit:
   stop_loss_pct: 0.25                # back to 0.25 — cut losses sooner
   take_profit_pct: 0.50              # first take-profit trigger
   take_profit_sell_fraction: 0.5     # sell this fraction of the position at take-profit
-  trailing_stop_pct: 0.20            # back to 0.20 — lock in gains sooner once trailing
+  trailing_stop_pct: 0.20            # baseline trailing stop while a position's peak gain is below every tier below
+  trailing_stop_tiers:
+    # "Run away when profits get maximized": the trailing stop tightens as
+    # a position's best-ever gain grows, so a real pump gives back less
+    # before locking in the win instead of a flat 20% of however big the
+    # spike was. Ordered smallest peak-gain threshold first; the tightest
+    # tier whose threshold the position's peak has reached wins.
+    - peak_gain_pct: 0.50             # once up 50%+ from entry at some point
+      trailing_stop_pct: 0.15
+    - peak_gain_pct: 1.00             # up 100%+ (doubled)
+      trailing_stop_pct: 0.10
+    - peak_gain_pct: 2.00             # up 200%+ (tripled) — protect a real moonshot hard
+      trailing_stop_pct: 0.06
   max_hold_minutes: 240              # force exit after this long regardless
   liquidity_rug_fraction: 0.5        # trips the emergency liquidity-rug exit sooner — kept, this is a safety filter
   sudden_liquidity_drop_pct: 0.35    # trips on a smaller sudden drop so an in-progress rug gets caught faster — kept, safety filter
@@ -121,6 +133,16 @@ signals:
     # multi-week approval like Reddit now requires.
     enabled: true
     limit: 30                          # was 20 — larger candidate pool per poll
+    mention_cooldown_minutes: 30       # don't re-signal the same token more often than this
+  raydium:
+    # Raydium's own free, public pools API -- no key, no approval, ever.
+    # Raydium is one of the two or three biggest Solana AMMs and where a
+    # lot of pump.fun graduates and other memecoins end up listed, so its
+    # own by-volume pool ranking is "where the real trading is happening"
+    # rather than a third-party trending guess. See README's "Raydium"
+    # section.
+    enabled: true
+    limit: 30
     mention_cooldown_minutes: 30       # don't re-signal the same token more often than this
   dexscreener_boosts:
     # DexScreener's own free, public "token boosts" API -- teams pay to

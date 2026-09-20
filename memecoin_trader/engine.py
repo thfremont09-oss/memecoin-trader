@@ -130,6 +130,12 @@ def build_signal_source(settings: Settings, market_client: DexScreenerClient) ->
                 )
             )
 
+    if settings.raydium_signal.enabled:
+        from memecoin_trader.signals.raydium_source import RaydiumPoolsSource
+
+        logger.info("adding Raydium pools-by-volume signal source alongside %s", primary.name)
+        sources.append(RaydiumPoolsSource(config=settings.raydium_signal, chain_id=settings.chain_id))
+
     if settings.dexscreener_boosts_signal.enabled:
         from memecoin_trader.signals.dexscreener_boosts_source import DexScreenerBoostsSource
 
@@ -303,7 +309,9 @@ class TradingEngine:
                         else "proceeding without it (fail_closed=false)",
                     )
 
-            features = extract_features(signal, market, rug_report) if market is not None else None
+            features = (
+                extract_features(signal, market, rug_report, corroborating_sources) if market is not None else None
+            )
 
             ml_confidence = None
             if (

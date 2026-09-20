@@ -29,6 +29,7 @@ FEATURE_NAMES: Final[list[str]] = [
     "rug_score",
     "rug_danger_flag_count",
     "rug_lp_locked_pct",
+    "corroborating_source_count",
 ]
 
 
@@ -36,6 +37,7 @@ def extract_features(
     signal: SocialSignal,
     market: PairInfo,
     rug_report: RugRiskReport | None = None,
+    corroborating_sources: int = 0,
 ) -> dict[str, float]:
     fdv = float(market.fdv_usd) if market.fdv_usd else 0.0
     liquidity = float(market.liquidity_usd)
@@ -61,6 +63,7 @@ def extract_features(
             if (rug_report is not None and rug_report.lp_locked_pct is not None)
             else 0.0
         ),
+        "corroborating_source_count": float(corroborating_sources),
     }
 
 

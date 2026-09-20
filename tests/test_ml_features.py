@@ -37,6 +37,20 @@ def test_unknown_fdv_gives_zero_ratio_not_a_crash():
     assert features["liquidity_to_fdv_pct"] == 0.0
 
 
+def test_corroborating_source_count_defaults_to_zero():
+    signal = make_signal()
+    market = make_pair()
+    features = extract_features(signal, market)
+    assert features["corroborating_source_count"] == 0.0
+
+
+def test_corroborating_source_count_is_captured_when_passed():
+    signal = make_signal()
+    market = make_pair()
+    features = extract_features(signal, market, corroborating_sources=3)
+    assert features["corroborating_source_count"] == 3.0
+
+
 def test_features_to_vector_is_ordered_and_tolerant_of_missing_keys():
     vector = features_to_vector({"signal_score": 1.0})
     assert len(vector) == len(FEATURE_NAMES)

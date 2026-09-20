@@ -1,8 +1,9 @@
+import dataclasses
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from memecoin_trader.analysis.exit_strategy import evaluate_exit
-from memecoin_trader.config import ExitConfig
+from memecoin_trader.config import ExitConfig, TrailingStopTier
 from memecoin_trader.portfolio.models import Position
 
 CONFIG = ExitConfig(
@@ -10,9 +11,18 @@ CONFIG = ExitConfig(
     take_profit_pct=0.50,
     take_profit_sell_fraction=0.5,
     trailing_stop_pct=0.20,
+    trailing_stop_tiers=[],
     max_hold_minutes=240,
     liquidity_rug_fraction=0.4,
     sudden_liquidity_drop_pct=0.5,
+)
+
+CONFIG_WITH_TIERS = dataclasses.replace(
+    CONFIG,
+    trailing_stop_tiers=[
+        TrailingStopTier(peak_gain_pct=0.50, trailing_stop_pct=0.15),
+        TrailingStopTier(peak_gain_pct=1.00, trailing_stop_pct=0.10),
+    ],
 )
 
 
@@ -133,3 +143,32 @@ def test_sudden_drop_ignored_without_a_previous_snapshot():
     position = make_position(entry_price="1.0", entry_liquidity="20000")
     decision = evaluate_exit(position, Decimal("1.0"), Decimal("9000"), CONFIG, previous_liquidity_usd=None)
     assert decision is None  # nothing to compare against yet (first check on this position)
+
+
+def test_trailing_stop_tier_tightens_after_a_big_peak_gain():
+    # peak is +100% from entry -> the 1.00 tier's 10% trailing stop applies,
+    # not the flat 20% baseline; an 11% pullback from peak should now trigger.
+    position = make_position(entry_price="1.0", peak_price="2.0", take_profit_taken=True)
+    decision = evaluate_exit(position, Decimal("1.78"), Decimal("20000"), CONFIG_WITH_TIERS)  # 11% off peak
+    assert decision is not None
+    assert decision.reason == "trailing_stop"
+
+
+def test_trailing_stop_tier_does_not_apply_below_its_threshold():
+    # peak is only +30% from entry -> no tier threshold met, falls back to
+    # the flat 20% baseline; an 11% pullback should NOT be enough to trigger.
+    position = make_position(entry_price="1.0", peak_price="1.3", take_profit_taken=True)
+    decision = evaluate_exit(position, Decimal("1.157"), Decimal("20000"), CONFIG_WITH_TIERS)  # ~11% off peak
+    assert decision is None
+
+
+def test_trailing_stop_uses_the_tightest_tier_reached():
+    # peak is +150% from entry -> both the 0.50 and 1.00 tiers are reached;
+    # the tightest (10%) should win, not the looser 15% one.
+    position = make_position(entry_price="1.0", peak_price="2.5", take_profit_taken=True)
+    decision = evaluate_exit(position, Decimal("2.26"), Decimal("20000"), CONFIG_WITH_TIERS)  # 9.6% off peak
+    assert decision is None  # under 10% -- the tight tier, not the loose 15% one, is in effect
+
+    decision = evaluate_exit(position, Decimal("2.24"), Decimal("20000"), CONFIG_WITH_TIERS)  # 10.4% off peak
+    assert decision is not None
+    assert decision.reason == "trailing_stop"

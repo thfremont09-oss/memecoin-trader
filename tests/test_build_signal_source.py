@@ -17,15 +17,16 @@ def _with_mock_alongside_real(settings, run_alongside_real: bool):
 
 def _disable_additive_sources(settings):
     """Reddit/Birdeye/Farcaster are skip-with-warning without credentials
-    already, but Bluesky, 4chan, DexScreener boosts, and GeckoTerminal need
-    no credentials at all and are on by default -- explicitly disabling
-    every additive source keeps these tests isolated to just the one
-    interaction each is actually testing."""
+    already, but Bluesky, 4chan, DexScreener boosts, GeckoTerminal, and
+    Raydium need no credentials at all and are on by default -- explicitly
+    disabling every additive source keeps these tests isolated to just the
+    one interaction each is actually testing."""
     return dataclasses.replace(
         settings,
         reddit_signal=dataclasses.replace(settings.reddit_signal, enabled=False),
         pumpfun_signal=dataclasses.replace(settings.pumpfun_signal, enabled=False),
         birdeye_signal=dataclasses.replace(settings.birdeye_signal, enabled=False),
+        raydium_signal=dataclasses.replace(settings.raydium_signal, enabled=False),
         dexscreener_boosts_signal=dataclasses.replace(settings.dexscreener_boosts_signal, enabled=False),
         geckoterminal_signal=dataclasses.replace(settings.geckoterminal_signal, enabled=False),
         bluesky_signal=dataclasses.replace(settings.bluesky_signal, enabled=False),
@@ -82,6 +83,16 @@ def test_dexscreener_boosts_and_geckoterminal_are_on_by_default_needing_no_crede
     assert isinstance(source, CompositeSignalSource)
     assert "dexscreener_boosts" in source.name
     assert "geckoterminal_trending" in source.name
+
+
+def test_raydium_is_on_by_default_needing_no_credentials():
+    settings = load_settings()
+    market = DexScreenerClient()
+
+    source = build_signal_source(settings, market)
+
+    assert isinstance(source, CompositeSignalSource)
+    assert "raydium_pools" in source.name
 
 
 def test_farcaster_is_skipped_without_an_api_key():

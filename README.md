@@ -33,12 +33,14 @@ market data                                                            ▲
 | Birdeye trending signal | **Enabled but inert until credentialed** — free API key, self-serve, no approval wait. Third-party momentum ranking, runs alongside everything else. See [Birdeye](#birdeye-trending-tokens-free-api-key-no-approval-wait) |
 | DexScreener boosted-tokens signal | **On, works immediately** — free, no key, same host as market data; paid-promotion ranking. See [DexScreener boosted tokens](#dexscreener-boosted-tokens-free-no-key--on-by-default) |
 | GeckoTerminal trending signal | **On, works immediately** — free, no key, ever. Independent trending ranking, mostly adds corroboration. See [GeckoTerminal](#geckoterminal-trending-pools-free-no-key--on-by-default) |
+| Raydium pools-by-volume signal | **On, works immediately** — free, no key, ever. Ranked by 24h volume on one of Solana's biggest AMMs. See [Raydium](#raydium-pools-by-volume-free-no-key--on-by-default) |
 | pump.fun launch signal | **Off by default** — free, no-key, real-time on-chain launch feed; highest rug-risk category, so opt-in only. See [pump.fun launch feed](#pumpfun-launch-feed-free-no-key--off-by-default-use-with-caution) |
 | Bluesky signal | **On, works immediately** — free, no key, no approval ever (open reads are the protocol's design). See [Bluesky](#bluesky-free-no-key-no-approval--ever) |
 | Farcaster signal | **Enabled but inert until credentialed** — free API key via Neynar, self-serve, no approval wait. See [Farcaster](#farcaster-free-api-key-no-approval-wait) |
 | 4chan /biz/ signal | **On, works immediately, corroboration-only** — free, no key; capped low so it can never trigger a buy alone. See [4chan /biz/](#4chan-biz-free-no-key--corroboration-only-by-design) |
 | Rug-pull screening | **Real** — [RugCheck.xyz](https://rugcheck.xyz) checked before every buy (mint/freeze authority, LP lock, holder risk), plus liquidity/FDV and price-spike heuristics from DexScreener data |
 | Trade-quality ML model | **On by default, but a no-op until trained** — auto-trains itself on the bot's own closed-trade history once there's enough of it; see [Machine learning](#machine-learning) |
+| Dynamic trailing stop | **Tightens 20% → 15% → 10% → 6%** as a position's peak gain grows, so a big pump gives back less; see [Run away when profits get maximized](#run-away-when-profits-get-maximized-dynamic-trailing-stop) |
 | Caution level (buy frequency) | **Live-adjustable, 1-5, default 3 "Balanced"** — dashboard slider or CLI, only affects how often it buys, not safety filters; see [Caution level](#caution-level-buy-frequency-slider) |
 | Equity chart zoom | **1MIN / 5M / 1H / 1D / 1W / 1M / YTD / ALL presets** on the dashboard, server-side filtered and downsampled; see [Equity curve zoom](#equity-curve-zoom-1min--5m--1h--1d--1w--1m--ytd--all) |
 | Dashboard refresh speed | **Adjustable 1-60s dial**, client-side only; see [Refresh speed dial](#refresh-speed-dial) |
@@ -213,11 +215,21 @@ boosts, so it mostly adds independent corroboration weight to tokens the
 others already flagged, plus occasionally its own early picks. No key, no
 approval, ever. On by default, works immediately.
 
-Both of the above are scored the same way as Birdeye — rank 1 (top of
-that provider's list) scores highest, tapering off after roughly the top
+### Raydium pools by volume (free, no key — on by default)
+
+`RaydiumPoolsSource` (`memecoin_trader/signals/raydium_source.py`) polls
+[Raydium's](https://api-v3.raydium.io) own free, public pools API,
+ranked by 24h volume. Raydium is one of the two or three biggest Solana
+AMMs and where a lot of pump.fun graduates and other memecoins end up
+listed, so this is "where the real trading is happening right now"
+rather than a third-party trending guess. No key, no approval, ever. On
+by default, works immediately.
+
+All three of the above are scored the same way — rank 1 (top of that
+provider's list) scores highest, tapering off after roughly the top
 15-20. Their response shapes are taken from each provider's public docs,
-not verified live from the sandbox this was built in — if either comes
-back empty, check the logs for a shape-mismatch warning.
+not verified live from the sandbox this was built in — if any comes back
+empty, check the logs for a shape-mismatch warning.
 
 ### pump.fun launch feed (free, no key — off by default, use with caution)
 
@@ -393,8 +405,8 @@ real and tell me if anything about the response shape looks off.
 ## Multi-source corroboration
 
 With multiple independent hype/discovery sources now running at once
-(Twitter/X, Reddit, Birdeye, DexScreener boosts, GeckoTerminal, Bluesky,
-Farcaster, 4chan /biz/, the mock feed, optionally pump.fun), the bot
+(Twitter/X, Reddit, Birdeye, DexScreener boosts, GeckoTerminal, Raydium,
+Bluesky, Farcaster, 4chan /biz/, the mock feed, optionally pump.fun), the bot
 tracks which sources have flagged each token recently
 (`entry.corroboration_window_minutes`, default 30). If 2 or more distinct
 sources independently flag the same token within that window, its score
@@ -491,8 +503,9 @@ python -m memecoin_trader.cli caution 2
 
 `memecoin_trader/ml/` adds a small logistic-regression model that predicts,
 from a token's entry-time features (hype score, liquidity, volume, price
-momentum, buy/sell ratio, RugCheck score, etc.), the probability a trade
-will end up profitable. Since a rug pull always shows up as a large loss, a
+momentum, buy/sell ratio, RugCheck score, how many independent sources
+corroborated the signal, etc.), the probability a trade will end up
+profitable. Since a rug pull always shows up as a large loss, a
 model that predicts plain profitability is implicitly learning to avoid
 rug-like patterns too — there's no separate "is this a scam" label needed.
 scikit-learn/joblib are regular dependencies now (in `requirements.txt`),
@@ -517,6 +530,31 @@ check (e.g. right after crossing the minimum trade count):
 ```powershell
 python -m memecoin_trader.cli train
 ```
+
+## Run away when profits get maximized (dynamic trailing stop)
+
+The flat `exit.trailing_stop_pct` (20% by default) always gave back the
+same fraction of a position's peak gain before exiting, whether that peak
+was +10% or +300% — a real moonshot could roll over and hand back a huge
+chunk of the win before the flat trailing stop finally triggered.
+`exit.trailing_stop_tiers` in `config.yaml` tightens the trailing stop as
+a position's best-ever gain grows, so the bigger the pump, the less of it
+gets given back before the bot locks in profit and gets out:
+
+| Position's peak gain reached... | Trailing stop tightens to |
+|---|---|
+| below 50% | 20% (the flat baseline) |
+| 50%+ | 15% |
+| 100%+ (doubled) | 10% |
+| 200%+ (tripled) | 6% |
+
+Whichever tier's threshold the position's peak has reached *and* is the
+tightest applies — a token that peaked at +250% uses the 6% tier, not the
+looser 15%/10% ones it also technically qualifies for. This only ever
+affects how a profitable position is protected on the way out; it never
+loosens the stop-loss, the liquidity-rug exits, or anything else that
+already runs ahead of it in `evaluate_exit()`'s priority order. Tune or
+add tiers in `config.yaml`'s `exit.trailing_stop_tiers` list.
 
 ## Setup (Windows PowerShell)
 
