@@ -125,21 +125,13 @@
   .mascot {
     position: fixed; bottom: 20px; right: 24px; z-index: 500;
     pointer-events: none; user-select: none;
-    filter: drop-shadow(0 6px 12px rgba(0,0,0,0.45));
+    filter: drop-shadow(0 6px 10px rgba(0,0,0,0.5));
   }
-  .mascot-char { display: inline-block; font-size: 52px; line-height: 1; transform-origin: bottom center; }
-  .mascot-char.dancing { animation: mascot-dance 0.55s ease-in-out infinite; }
-  .mascot-char.sad { animation: mascot-sad 2.4s ease-in-out infinite; filter: grayscale(0.5) brightness(0.85); }
-  @keyframes mascot-dance {
-    0%   { transform: translateY(0) rotate(-12deg); }
-    25%  { transform: translateY(-16px) rotate(10deg); }
-    50%  { transform: translateY(0) rotate(-8deg); }
-    75%  { transform: translateY(-10px) rotate(12deg); }
-    100% { transform: translateY(0) rotate(-12deg); }
-  }
-  @keyframes mascot-sad {
-    0%, 100% { transform: translateY(0) rotate(0deg); }
-    50%      { transform: translateY(6px) rotate(-4deg); }
+  .mascot-canvas {
+    width: 96px; height: 128px;
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    image-rendering: crisp-edges;
   }
 </style>
 </head>
@@ -311,12 +303,8 @@
     </div>
   </div>
 
-  <div id="mascot" class="mascot" title="How we're doing">
-    {% if summary.total_return_usd >= 0 %}
-    <span id="mascotChar" class="mascot-char dancing">🕺</span>
-    {% else %}
-    <span id="mascotChar" class="mascot-char sad">🙍‍♂️</span>
-    {% endif %}
+  <div id="mascot" class="mascot" data-mode="{{ 'dance' if summary.total_return_usd >= 0 else 'sad' }}" title="How we're doing">
+    <canvas id="mascotCanvas" class="mascot-canvas" width="24" height="32"></canvas>
   </div>
 
 <script>
@@ -497,13 +485,88 @@
     document.getElementById('equityChangeLabel').className = 'change ' + pnlClass(s.total_return_usd);
   }
 
-  // The corner mascot: dancing in the green, slumped and sad in the red --
-  // same >= 0 convention as every other positive/negative split on this page.
+  // The corner mascot: a tiny hand-drawn pixel-art dude on a 24x32 canvas,
+  // scaled up 4x with image-rendering:pixelated for a chunky retro look
+  // (think an NES victory-dance sprite, not a single static emoji). Same
+  // total_return_usd >= 0 convention as every other green/red split on this
+  // page decides which animation set plays.
+  const mascotCanvas = document.getElementById('mascotCanvas');
+  const mascotCtx = mascotCanvas.getContext('2d');
+  mascotCtx.imageSmoothingEnabled = false;
+  let mascotMode = {{ ('dance' if summary.total_return_usd >= 0 else 'sad')|tojson }};
+
+  function px(ctx, x, y, w, h, color) {
+    ctx.fillStyle = color;
+    ctx.fillRect(x, y, w, h);
+  }
+
+  // Four alternating poses -- arms/legs swap sides and the torso leans
+  // opposite each beat, the same kind of simple limb-swap loop classic
+  // 8-bit victory-dance sprites use to read as "dancing" at a tiny size.
+  const DANCE_POSES = [
+    { lean: -1, armL: [3, 12, 4, 3], armR: [17, 4, 4, 8], legL: [6, 20, 4, 9], legR: [13, 20, 4, 9] },
+    { lean: 0, armL: [4, 10, 4, 4], armR: [16, 10, 4, 4], legL: [9, 20, 3, 9], legR: [12, 20, 3, 9] },
+    { lean: 1, armL: [3, 4, 4, 8], armR: [17, 12, 4, 3], legL: [13, 20, 4, 9], legR: [6, 20, 4, 9] },
+    { lean: 0, armL: [4, 10, 4, 4], armR: [16, 10, 4, 4], legL: [8, 20, 4, 9], legR: [12, 20, 4, 9] },
+  ];
+  const DANCE_FRAME_MS = 160;
+
+  function drawDanceFrame(frameIndex) {
+    const ctx = mascotCtx;
+    ctx.clearRect(0, 0, 24, 32);
+    const skin = '#f2c29a', hair = '#2b1d12', shirt = '#3ecf8e', pants = '#1c2b57', shoe = '#3a3a3a';
+    const pose = DANCE_POSES[frameIndex % DANCE_POSES.length];
+    ctx.save();
+    ctx.translate(pose.lean, 0);
+    px(ctx, 7, 1, 10, 3, hair);
+    px(ctx, 8, 3, 8, 6, skin);
+    px(ctx, 9, 10, 6, 9, shirt);
+    px(ctx, ...pose.armL, skin);
+    px(ctx, ...pose.armR, skin);
+    px(ctx, ...pose.legL, pants);
+    px(ctx, ...pose.legR, pants);
+    px(ctx, pose.legL[0] - 1, 28, pose.legL[2] + 2, 2, shoe);
+    px(ctx, pose.legR[0] - 1, 28, pose.legR[2] + 2, 2, shoe);
+    ctx.restore();
+  }
+
+  // A slow 2-frame droop/sigh -- head and torso sink a pixel and settle,
+  // arms hanging straight at the sides, nothing bouncy about it.
+  const SAD_FRAME_MS = 900;
+
+  function drawSadFrame(frameIndex) {
+    const ctx = mascotCtx;
+    ctx.clearRect(0, 0, 24, 32);
+    const skin = '#c9c9c9', hair = '#333333', shirt = '#4a4a4a', pants = '#2e2e2e', shoe = '#3a3a3a';
+    const bob = frameIndex % 2;
+    px(ctx, 7, 3 + bob, 10, 3, hair);
+    px(ctx, 8, 5 + bob, 8, 6, skin);
+    px(ctx, 9, 12 + bob, 6, 8, shirt);
+    px(ctx, 5, 13 + bob, 3, 6, skin);
+    px(ctx, 16, 13 + bob, 3, 6, skin);
+    px(ctx, 9, 20 + bob, 3, 8, pants);
+    px(ctx, 12, 20 + bob, 3, 8, pants);
+    px(ctx, 8, 27 + bob, 4, 2, shoe);
+    px(ctx, 12, 27 + bob, 4, 2, shoe);
+  }
+
+  // Frame index is derived from the wall clock rather than an incrementing
+  // counter, so switching mascotMode mid-animation (a refresh tick flips
+  // green<->red) never needs its own timer reset -- the right frame for
+  // whichever mode is active "just falls out" of Date.now().
+  function animateMascot() {
+    if (mascotMode === 'dance') {
+      drawDanceFrame(Math.floor(Date.now() / DANCE_FRAME_MS));
+    } else {
+      drawSadFrame(Math.floor(Date.now() / SAD_FRAME_MS));
+    }
+    requestAnimationFrame(animateMascot);
+  }
+  requestAnimationFrame(animateMascot);
+
   function renderMascot(s) {
-    const mascotChar = document.getElementById('mascotChar');
-    const inTheGreen = s.total_return_usd >= 0;
-    mascotChar.textContent = inTheGreen ? '🕺' : '🙍‍♂️';
-    mascotChar.className = 'mascot-char ' + (inTheGreen ? 'dancing' : 'sad');
+    mascotMode = s.total_return_usd >= 0 ? 'dance' : 'sad';
+    document.getElementById('mascot').dataset.mode = mascotMode;
   }
 
   function renderStatus(s) {

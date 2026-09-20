@@ -189,8 +189,8 @@ def test_index_renders_equity_range_buttons_defaulting_to_all(client):
 def test_mascot_dances_when_flat_or_in_the_green(client):
     c, _ = client
     resp = c.get("/")
-    assert 'class="mascot-char dancing"' in resp.text
-    assert "🕺" in resp.text
+    assert 'data-mode="dance"' in resp.text
+    assert 'id="mascotCanvas"' in resp.text
 
 
 def test_mascot_is_sad_when_in_the_red(client):
@@ -201,8 +201,7 @@ def test_mascot_is_sad_when_in_the_red(client):
     conn.close()
 
     resp = c.get("/")
-    assert 'class="mascot-char sad"' in resp.text
-    assert "🙍" in resp.text
+    assert 'data-mode="sad"' in resp.text
 
 
 def _seed_equity_history(db_path):

@@ -468,12 +468,19 @@ longer rally, just not back-to-back.
 
 ## The corner mascot
 
-Bottom-right corner of the dashboard: a little guy who dances (🕺) while
-total return is flat or positive, and slumps into a sad, desaturated frown
-(🙍‍♂️) the moment it dips into the red. Purely cosmetic — plain emoji plus
-a couple of CSS `@keyframes` animations, no images or libraries — and it
-updates on every refresh tick using the exact same `total_return_usd >= 0`
-rule the rest of the page already uses for its green/red split.
+Bottom-right corner of the dashboard: a tiny hand-drawn pixel-art guy on
+a 24x32 `<canvas>`, scaled up 4x with `image-rendering: pixelated` for a
+chunky, retro sprite look (think an old NES victory-dance animation, not
+a static emoji). While total return is flat or positive he cycles through
+a 4-pose dance loop — arms and legs swap sides and the torso leans the
+other way each beat, ~6 poses/sec — and the moment it dips into the red he
+switches to a slow, desaturated 2-frame droop instead: head and shoulders
+sink and settle, arms hanging at his sides. No images, sprite sheets, or
+external libraries — every pose is just a handful of `fillRect()` calls
+per frame — and it updates on the same `total_return_usd >= 0` rule the
+rest of the page already uses for its green/red split. Which pose set
+plays is also reflected in `#mascot`'s `data-mode` attribute (`dance` or
+`sad`) if you want to hook into it yourself.
 
 ## Caution level (buy-frequency slider)
 
