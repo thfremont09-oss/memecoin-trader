@@ -31,6 +31,8 @@ market data                                                            ▲
 | Twitter/X hype signal | **Simulated** by default — see below. A real X API adapter (and a browser-scraper fallback) exists and is a one-line switch away |
 | Reddit hype signal | **Enabled but inert until credentialed** — official API, but Reddit now requires a manual, multi-week approval before you can get a key (no more instant self-serve). Runs alongside whichever Twitter/X source is active once set up. See [Reddit](#reddit-official-api-approval-required) |
 | Birdeye trending signal | **Enabled but inert until credentialed** — free API key, self-serve, no approval wait. Third-party momentum ranking, runs alongside everything else. See [Birdeye](#birdeye-trending-tokens-free-api-key-no-approval-wait) |
+| DexScreener boosted-tokens signal | **On, works immediately** — free, no key, same host as market data; paid-promotion ranking. See [DexScreener boosted tokens](#dexscreener-boosted-tokens-free-no-key--on-by-default) |
+| GeckoTerminal trending signal | **On, works immediately** — free, no key, ever. Independent trending ranking, mostly adds corroboration. See [GeckoTerminal](#geckoterminal-trending-pools-free-no-key--on-by-default) |
 | pump.fun launch signal | **Off by default** — free, no-key, real-time on-chain launch feed; highest rug-risk category, so opt-in only. See [pump.fun launch feed](#pumpfun-launch-feed-free-no-key--off-by-default-use-with-caution) |
 | Bluesky signal | **On, works immediately** — free, no key, no approval ever (open reads are the protocol's design). See [Bluesky](#bluesky-free-no-key-no-approval--ever) |
 | Farcaster signal | **Enabled but inert until credentialed** — free API key via Neynar, self-serve, no approval wait. See [Farcaster](#farcaster-free-api-key-no-approval-wait) |
@@ -185,6 +187,34 @@ top ~15-20 trending tokens are the ones actually likely to clear
 `entry.mention_score_threshold`. This response shape is taken from
 Birdeye's public docs, not verified live from the sandbox this was built
 in — if it comes back empty, check the logs for a shape-mismatch warning.
+
+### DexScreener boosted tokens (free, no key — on by default)
+
+`DexScreenerBoostsSource` (`memecoin_trader/signals/dexscreener_boosts_source.py`)
+polls DexScreener's own free, public
+["token boosts"](https://docs.dexscreener.com/api/reference#token-boosts)
+endpoint — token teams pay to get promoted on DexScreener's site, and this
+lists whoever's currently spending the most on that. No key, no approval,
+uses the exact same host this bot already calls for market data. It's a
+paid-promotion signal, not organic momentum, so treat it as one more data
+point among many — every other filter (rug check, liquidity, ML gate)
+still gates it like any other source. On by default, works immediately.
+
+### GeckoTerminal trending pools (free, no key — on by default)
+
+`GeckoTerminalTrendingSource` (`memecoin_trader/signals/geckoterminal_source.py`)
+polls [GeckoTerminal's](https://www.geckoterminal.com/dex-api) free,
+public trending-pools endpoint for Solana — a different provider with a
+different trending methodology from both Birdeye and DexScreener's
+boosts, so it mostly adds independent corroboration weight to tokens the
+others already flagged, plus occasionally its own early picks. No key, no
+approval, ever. On by default, works immediately.
+
+Both of the above are scored the same way as Birdeye — rank 1 (top of
+that provider's list) scores highest, tapering off after roughly the top
+15-20. Their response shapes are taken from each provider's public docs,
+not verified live from the sandbox this was built in — if either comes
+back empty, check the logs for a shape-mismatch warning.
 
 ### pump.fun launch feed (free, no key — off by default, use with caution)
 
@@ -360,7 +390,8 @@ real and tell me if anything about the response shape looks off.
 ## Multi-source corroboration
 
 With multiple independent hype/discovery sources now running at once
-(Twitter/X, Reddit, Birdeye, the mock feed, optionally pump.fun), the bot
+(Twitter/X, Reddit, Birdeye, DexScreener boosts, GeckoTerminal, Bluesky,
+Farcaster, 4chan /biz/, the mock feed, optionally pump.fun), the bot
 tracks which sources have flagged each token recently
 (`entry.corroboration_window_minutes`, default 30). If 2 or more distinct
 sources independently flag the same token within that window, its score

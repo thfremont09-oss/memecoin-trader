@@ -136,6 +136,20 @@ class BirdeyeSignalConfig:
 
 
 @dataclass(frozen=True)
+class DexScreenerBoostsSignalConfig:
+    enabled: bool
+    limit: int
+    mention_cooldown_minutes: float
+
+
+@dataclass(frozen=True)
+class GeckoTerminalSignalConfig:
+    enabled: bool
+    limit: int
+    mention_cooldown_minutes: float
+
+
+@dataclass(frozen=True)
 class BlueskySignalConfig:
     enabled: bool
     query: str
@@ -188,6 +202,8 @@ class Settings:
     reddit_signal: RedditSignalConfig
     pumpfun_signal: PumpFunSignalConfig
     birdeye_signal: BirdeyeSignalConfig
+    dexscreener_boosts_signal: DexScreenerBoostsSignalConfig
+    geckoterminal_signal: GeckoTerminalSignalConfig
     bluesky_signal: BlueskySignalConfig
     farcaster_signal: FarcasterSignalConfig
     fourchan_signal: FourChanSignalConfig
@@ -225,6 +241,8 @@ def load_settings(config_path: Path | None = None, env_path: Path | None = None)
     reddit_signal = RedditSignalConfig(**raw["signals"]["reddit"])
     pumpfun_signal = PumpFunSignalConfig(**raw["signals"]["pumpfun"])
     birdeye_signal = BirdeyeSignalConfig(**raw["signals"]["birdeye"])
+    dexscreener_boosts_signal = DexScreenerBoostsSignalConfig(**raw["signals"]["dexscreener_boosts"])
+    geckoterminal_signal = GeckoTerminalSignalConfig(**raw["signals"]["geckoterminal"])
     bluesky_signal = BlueskySignalConfig(**raw["signals"]["bluesky"])
     farcaster_signal = FarcasterSignalConfig(**raw["signals"]["farcaster"])
     fourchan_signal = FourChanSignalConfig(**raw["signals"]["fourchan"])
@@ -257,6 +275,8 @@ def load_settings(config_path: Path | None = None, env_path: Path | None = None)
         reddit_signal=reddit_signal,
         pumpfun_signal=pumpfun_signal,
         birdeye_signal=birdeye_signal,
+        dexscreener_boosts_signal=dexscreener_boosts_signal,
+        geckoterminal_signal=geckoterminal_signal,
         bluesky_signal=bluesky_signal,
         farcaster_signal=farcaster_signal,
         fourchan_signal=fourchan_signal,

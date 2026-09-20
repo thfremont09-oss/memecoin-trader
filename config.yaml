@@ -122,6 +122,24 @@ signals:
     enabled: true
     limit: 30                          # was 20 — larger candidate pool per poll
     mention_cooldown_minutes: 30       # don't re-signal the same token more often than this
+  dexscreener_boosts:
+    # DexScreener's own free, public "token boosts" API -- teams pay to
+    # get promoted on DexScreener's site. No key, no approval, uses the
+    # same host this bot already calls for market data. Independent of
+    # Birdeye's ranking and every social source; it's paid promotion, not
+    # organic momentum, so every other filter still gates it like normal.
+    # See README's "DexScreener boosted tokens" section.
+    enabled: true
+    limit: 30
+    mention_cooldown_minutes: 30       # don't re-signal the same token more often than this
+  geckoterminal:
+    # GeckoTerminal's free, public trending-pools API -- no key, no
+    # approval, ever. A different provider/methodology from Birdeye and
+    # DexScreener boosts, so it mostly adds corroboration weight. See
+    # README's "GeckoTerminal" section.
+    enabled: true
+    limit: 20
+    mention_cooldown_minutes: 30       # don't re-signal the same token more often than this
   bluesky:
     # Bluesky's free, fully public searchPosts API -- no key, no approval
     # process, ever (open reads are the AT Protocol's design intent). Runs

@@ -130,6 +130,22 @@ def build_signal_source(settings: Settings, market_client: DexScreenerClient) ->
                 )
             )
 
+    if settings.dexscreener_boosts_signal.enabled:
+        from memecoin_trader.signals.dexscreener_boosts_source import DexScreenerBoostsSource
+
+        logger.info("adding DexScreener boosted-tokens signal source alongside %s", primary.name)
+        sources.append(
+            DexScreenerBoostsSource(config=settings.dexscreener_boosts_signal, chain_id=settings.chain_id)
+        )
+
+    if settings.geckoterminal_signal.enabled:
+        from memecoin_trader.signals.geckoterminal_source import GeckoTerminalTrendingSource
+
+        logger.info("adding GeckoTerminal trending-pools signal source alongside %s", primary.name)
+        sources.append(
+            GeckoTerminalTrendingSource(config=settings.geckoterminal_signal, chain_id=settings.chain_id)
+        )
+
     if settings.bluesky_signal.enabled:
         from memecoin_trader.signals.bluesky_source import BlueskySource
 
