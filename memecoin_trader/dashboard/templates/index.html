@@ -136,6 +136,20 @@
     pointer-events: auto;
     filter: drop-shadow(0 6px 10px rgba(0,0,0,0.5));
   }
+  .club-spot {
+    position: fixed; bottom: 20px; left: 24px; z-index: 500;
+    pointer-events: none; user-select: none;
+  }
+  .club-canvas {
+    width: 40px; height: 80px;
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    image-rendering: crisp-edges;
+    cursor: pointer;
+    pointer-events: auto;
+    filter: drop-shadow(0 6px 10px rgba(0,0,0,0.5));
+  }
+  .club-canvas.cooldown { cursor: not-allowed; }
 </style>
 </head>
 <body>
@@ -310,6 +324,10 @@
     <canvas class="mascot-canvas" width="32" height="40"></canvas>
     <canvas class="mascot-canvas" width="32" height="40"></canvas>
     <canvas class="mascot-canvas" width="32" height="40"></canvas>
+  </div>
+
+  <div id="clubSpot" class="club-spot" title="Click to pick up, click again to swing">
+    <canvas id="clubCanvas" class="club-canvas" width="16" height="32"></canvas>
   </div>
 
 <script>
@@ -523,6 +541,18 @@
   // Shared face: eyes plus a mouth shape that reads as a small curve at this
   // scale (a couple of corner pixels raised or lowered relative to the
   // center, rather than a single flat line).
+  // The cartoon "beaned" bump: a little bruise with a couple of impact
+  // sparks radiating off it, drawn wherever a fallen-frame pose wants to
+  // anchor it -- shows up on every tumble/dazed/cry frame, so it doesn't
+  // matter whether the hit came from a direct punch-click or a club swing.
+  function drawLump(ctx, x, y) {
+    px(ctx, x, y, 4, 3, '#b33a5c');
+    px(ctx, x + 1, y - 1, 2, 1, '#d45c82');
+    px(ctx, x - 2, y - 2, 1, 1, '#ffd54a');
+    px(ctx, x + 5, y - 2, 1, 1, '#ffd54a');
+    px(ctx, x + 1, y - 3, 1, 1, '#ffd54a');
+  }
+
   function drawFace(ctx, eyeColor, mouthColor, mood, yOffset) {
     yOffset = yOffset || 0;
     px(ctx, 13, 9 + yOffset, 2, 2, eyeColor);
@@ -636,6 +666,7 @@
       px(ctx, 17, 24, 4, 9, pants);
       px(ctx, 10, 32, 5, 3, shoe);
       px(ctx, 17, 32, 5, 3, shoe);
+      drawLump(ctx, 17, 4);
     } else {
       // landed, flat on the ground, dazed -- little stars circling his head
       // instead of tears (those start once the cry loop takes over)
@@ -654,6 +685,7 @@
       px(ctx, 6, 6, 2, 2, '#ffd54a');
       px(ctx, 23, 8, 2, 2, '#ffd54a');
       px(ctx, 16, 3, 2, 2, '#ffd54a');
+      drawLump(ctx, 15, 11);
     }
     ctx.restore();
   }
@@ -678,6 +710,7 @@
     const drop = frameIndex % 2;
     px(ctx, 12, 17 + drop * 3, 1, 2, tear);
     px(ctx, 20, 18 + drop * 3, 1, 2, tear);
+    drawLump(ctx, 17, 9);
   }
 
   function drawFallenFrame(ctx, elapsed, palette) {
@@ -692,8 +725,69 @@
   // counter, so switching mascotMode mid-animation (a refresh tick flips
   // green<->red) never needs its own timer reset -- the right frame for
   // whichever mode is active "just falls out" of Date.now().
+  // The club: sits idle in the opposite (bottom-left) corner. Click once to
+  // pick it up, click again to swing it -- a swing knocks down every
+  // mascot at once (same fallenAt mechanism a direct punch-click uses, so
+  // they get the identical tumble/dazed/cry/lump treatment). Every swing
+  // resets a 3s "still in hand" timer; once 3s pass with no further swing
+  // the club snaps back to its idle pose in the corner and starts a 10s
+  // cooldown before it can be picked up again.
+  const CLUB_W = 16, CLUB_H = 32;
+  const CLUB_RETURN_MS = 3000;
+  const CLUB_COOLDOWN_MS = 10000;
+  let clubState = 'idle'; // 'idle' | 'held' | 'cooldown'
+  let clubLastUseAt = 0;
+  let clubCooldownUntil = 0;
+
+  const clubCanvas = document.getElementById('clubCanvas');
+  const clubCtx = clubCanvas.getContext('2d');
+  clubCtx.imageSmoothingEnabled = false;
+
+  function drawClub(ctx, state) {
+    ctx.clearRect(0, 0, CLUB_W, CLUB_H);
+    // held: lighter wood + lifted a couple px, like it's raised and ready;
+    // cooldown: grayed out. No rotation -- a tilt at this canvas size just
+    // pushes the sprite outside the visible bounds.
+    const wood = state === 'held' ? '#c98a5a' : state === 'cooldown' ? '#5a5a5a' : '#a9714a';
+    const woodDark = state === 'held' ? '#8a5a36' : state === 'cooldown' ? '#3f3f3f' : '#7a4d30';
+    const band = state === 'cooldown' ? '#2e2e2e' : '#3a2a1c';
+    const lift = state === 'held' ? -2 : 0;
+    ctx.save();
+    ctx.translate(0, lift);
+    px(ctx, 6, 16, 4, 16, wood);
+    px(ctx, 6, 20, 4, 2, band);
+    px(ctx, 6, 25, 4, 2, band);
+    px(ctx, 3, 2, 10, 16, wood);
+    px(ctx, 3, 2, 10, 2, woodDark);
+    px(ctx, 3, 14, 10, 2, woodDark);
+    ctx.restore();
+  }
+
+  clubCanvas.addEventListener('click', () => {
+    if (clubState === 'idle') {
+      clubState = 'held';
+    } else if (clubState === 'held') {
+      const now = Date.now();
+      for (const m of mascots) m.fallenAt = now;
+      clubLastUseAt = now;
+    }
+    // clicks during 'cooldown' are ignored -- can't pick it up yet
+  });
+
   function animateMascots() {
     const now = Date.now();
+
+    if (clubState === 'held' && clubLastUseAt > 0 && now - clubLastUseAt >= CLUB_RETURN_MS) {
+      clubState = 'cooldown';
+      clubCooldownUntil = now + CLUB_COOLDOWN_MS;
+      clubLastUseAt = 0;
+    }
+    if (clubState === 'cooldown' && now >= clubCooldownUntil) {
+      clubState = 'idle';
+    }
+    clubCanvas.classList.toggle('cooldown', clubState === 'cooldown');
+    drawClub(clubCtx, clubState);
+
     for (const m of mascots) {
       if (m.fallenAt !== null) {
         const elapsed = now - m.fallenAt;

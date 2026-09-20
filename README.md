@@ -46,6 +46,7 @@ market data                                                            ▲
 | Dashboard refresh speed | **Adjustable 1-60s dial**, client-side only; see [Refresh speed dial](#refresh-speed-dial) |
 | Confetti | **Fires on any >0.5% equity pop** in a single refresh; see [Confetti on a pop](#confetti-on-a-pop) |
 | Corner mascot crew | **A few dancing friends, each punchable independently** — see [The corner mascot (and his friends)](#the-corner-mascot-and-his-friends) |
+| The club | **Pick up, swing at all of them, 3s-idle auto-return, 10s cooldown** — see [The club](#the-club) |
 | Money | **Simulated** ("paper" mode) by default. A real Solana execution path exists (`--live`) but is off by default and hard-gated — see [Going live](#going-live) |
 
 ### Why the Twitter signal is simulated
@@ -496,6 +497,25 @@ the group's normal state (dancing or sad) currently is. Each friend
 tracks his own `fallenAt` timestamp independently, so punching one
 doesn't interrupt the others, and clicking him again mid-cry just resets
 his own 5-second clock rather than needing any special-case handling.
+Every hit — punch or club — also leaves a little cartoon bump (a bruise
+with a couple of impact sparks) on the victim's head for as long as he's
+down, drawn as part of the same tumble/dazed/cry poses.
+
+## The club
+
+Bottom-left corner (opposite the mascots): a small pixel-art club, idle
+and waiting. Click it once to pick it up (it lifts slightly and lightens
+color), click it again to swing — a swing knocks down *every* mascot at
+once, using the exact same `fallenAt` mechanism a direct punch does, so
+they all get the full tumble/dazed/cry/lump treatment together.
+
+Each swing resets a 3-second "still in hand" timer, so you can chain
+swings back-to-back as long as you keep clicking within 3s of the last
+one. Let it sit for 3s with no swing and it snaps back to its idle pose
+in the corner, then starts a 10-second cooldown (grayed out, clicks
+ignored) before it can be picked up again. State machine: `idle` →
+(click) → `held` → (click) → swing, reset 3s timer, stay `held` →
+(3s pass with no swing) → `cooldown` for 10s → back to `idle`.
 
 ## Caution level (buy-frequency slider)
 

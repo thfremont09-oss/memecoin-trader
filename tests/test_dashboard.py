@@ -193,6 +193,12 @@ def test_mascot_dances_when_flat_or_in_the_green(client):
     assert resp.text.count('class="mascot-canvas"') == 3  # a little crew, not a lone guy
 
 
+def test_index_renders_the_club(client):
+    c, _ = client
+    resp = c.get("/")
+    assert 'id="clubCanvas"' in resp.text
+
+
 def test_mascot_is_sad_when_in_the_red(client):
     c, db_path = client
     conn = get_connection(db_path)
