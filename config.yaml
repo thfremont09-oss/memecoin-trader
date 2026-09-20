@@ -4,7 +4,7 @@
 mode: paper  # paper | live  (live also requires env safety flags, see README)
 
 portfolio:
-  starting_balance_usd: 300.0
+  starting_balance_usd: 100.0
 
 chain:
   id: solana
@@ -12,48 +12,48 @@ chain:
 # How often the engine does things, in seconds.
 timing:
   tick_seconds: 5                    # how often the main loop wakes up
-  signal_poll_interval_seconds: 30   # was 45 — poll more often so real opportunities get caught sooner
-  position_check_interval_seconds: 5  # was 20 — matches the dashboard's 5s auto-refresh so prices/positions actually update every reload
-  equity_snapshot_interval_seconds: 5  # was 30 — same reason, for the equity chart
-  token_cooldown_minutes: 30         # was 45 — re-enter a previously-sold token a bit sooner
+  signal_poll_interval_seconds: 45   # back to 45 — less frantic, only act on hype that's actually persisted a bit
+  position_check_interval_seconds: 5  # matches the dashboard's 5s auto-refresh so prices/positions actually update every reload
+  equity_snapshot_interval_seconds: 5  # same reason, for the equity chart
+  token_cooldown_minutes: 60         # back to 60 — more patient before re-buying a token you just sold
 
 entry:
-  mention_score_threshold: 45.0      # 0-100 hype score required to consider a buy
-  min_liquidity_usd: 3500
+  mention_score_threshold: 55.0      # back to 55 — more selective, needs real conviction before buying
+  min_liquidity_usd: 5000            # back to 5000 — avoid the thinnest, easiest-to-manipulate pools
   min_volume_24h_usd: 10000
-  min_pair_age_minutes: 5            # avoid the first few minutes (sniper/instant-rug risk) — left alone on purpose, this is a safety filter
+  min_pair_age_minutes: 5            # avoid the first few minutes (sniper/instant-rug risk) — safety filter, unchanged
   max_pair_age_hours: 72             # only chase fresh hype, not old coins
-  max_open_positions: 8              # was 6 — more concurrent positions = more trade throughput from the same signal volume
-  position_size_pct_of_cash: 0.20    # fraction of *current cash* per new trade
+  max_open_positions: 4              # back to 4 — fewer, more deliberate concurrent bets
+  position_size_pct_of_cash: 0.15    # was 0.20 — smaller fraction of cash per trade
   min_trade_usd: 5.0
-  max_trade_usd: 60.0
-  min_liquidity_to_fdv_pct: 3.0      # was 2.0 — raised, tighter floor against thin-liquidity manipulation/rugs
-  max_price_change_5m_pct: 180.0
-  min_buy_sell_ratio: 1.0            # new: skip tokens with more sells than buys in the last 24h (distribution/dumping, not accumulation)
-  corroboration_bonus_score: 15.0    # new: score bonus when 2+ distinct signal sources flag the same token within the window below
-  corroboration_window_minutes: 30   # new: how recent another source's signal on the same token has to be to count as corroboration
+  max_trade_usd: 25.0                # was 60 — smaller max bet size, scaled back down with the balance
+  min_liquidity_to_fdv_pct: 3.0      # tighter floor against thin-liquidity manipulation/rugs — kept, this is a safety filter
+  max_price_change_5m_pct: 150.0     # back to 150 — don't chase as hot a pump
+  min_buy_sell_ratio: 1.2            # was 1.0 — require healthier buy pressure, not just barely more buys than sells
+  corroboration_bonus_score: 15.0    # score bonus when 2+ distinct signal sources flag the same token within the window below
+  corroboration_window_minutes: 30   # how recent another source's signal on the same token has to be to count as corroboration
 
   rug_check:
     enabled: true                    # query RugCheck.xyz before buying
     fail_closed: true                # if the check errors out or the token isn't indexed yet, skip the trade rather than assume it's safe
     max_danger_flags: 0              # any RugCheck "danger"-level finding blocks the trade by default
-    max_warning_flags: 4             # too many smaller warn-level findings stacked up blocks the trade too, even with zero danger flags
-    min_lp_locked_pct: 65.0          # was 50.0 — raised, requires more LP actually locked/burned before trusting a pool
+    max_warning_flags: 3             # was 4 — even less tolerance for smaller red flags stacking up
+    min_lp_locked_pct: 65.0          # requires most LP actually locked/burned before trusting a pool — kept, this is a safety filter
 
   ml:
-    enabled: true                    # was false — the engine now auto-trains a model once enough closed trades exist (see min_training_trades); a no-op gate until then
-    min_confidence: 0.60             # was 0.55 — raised slightly, a bit more cautious once the model is actually live
+    enabled: true                    # the engine auto-trains a model once enough closed trades exist (see min_training_trades); a no-op gate until then
+    min_confidence: 0.65             # was 0.60 — raised again, more cautious once the model is actually live
     min_training_trades: 30          # won't (auto-)train with fewer closed trades than this
-    retrain_check_interval_minutes: 60  # new: how often the engine checks whether it's worth retraining on newly-closed trades
+    retrain_check_interval_minutes: 60  # how often the engine checks whether it's worth retraining on newly-closed trades
 
 exit:
-  stop_loss_pct: 0.30                # was 0.25 — loosened, gives trades a bit more room before cutting losses
+  stop_loss_pct: 0.25                # back to 0.25 — cut losses sooner
   take_profit_pct: 0.50              # first take-profit trigger
   take_profit_sell_fraction: 0.5     # sell this fraction of the position at take-profit
-  trailing_stop_pct: 0.25            # was 0.20 — loosened, lets winners run a bit further before trailing exit
+  trailing_stop_pct: 0.20            # back to 0.20 — lock in gains sooner once trailing
   max_hold_minutes: 240              # force exit after this long regardless
-  liquidity_rug_fraction: 0.5        # was 0.4 — raised, trips the emergency liquidity-rug exit sooner
-  sudden_liquidity_drop_pct: 0.35    # was 0.5 — lowered, trips on a smaller sudden drop so an in-progress rug gets caught faster
+  liquidity_rug_fraction: 0.5        # trips the emergency liquidity-rug exit sooner — kept, this is a safety filter
+  sudden_liquidity_drop_pct: 0.35    # trips on a smaller sudden drop so an in-progress rug gets caught faster — kept, safety filter
 
 execution:
   paper:
@@ -68,8 +68,8 @@ execution:
 signals:
   mock:
     trending_refresh_minutes: 10     # how often the mock source refreshes its pool of real trending tokens
-    max_signals_per_poll: 4          # was 3
-    run_alongside_real: true         # also run this synthetic feed even when a real source (scraper/API) is active, on top of real trending Solana tokens
+    max_signals_per_poll: 3
+    run_alongside_real: false        # was true — more cautious: only trade on real signals once a real source is configured, not synthetic hype too
   twitter:
     query: "(pump.fun OR \"just launched\" OR $SOL) (moon OR pump OR gem OR 100x) -is:retweet lang:en"
     max_results_per_poll: 25
