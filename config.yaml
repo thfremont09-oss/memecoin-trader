@@ -13,8 +13,8 @@ chain:
 timing:
   tick_seconds: 5                    # how often the main loop wakes up
   signal_poll_interval_seconds: 30   # was 45 — poll more often so real opportunities get caught sooner
-  position_check_interval_seconds: 20 # how often we refresh price for open positions
-  equity_snapshot_interval_seconds: 30 # how often we record equity for the dashboard chart
+  position_check_interval_seconds: 5  # was 20 — matches the dashboard's 5s auto-refresh so prices/positions actually update every reload
+  equity_snapshot_interval_seconds: 5  # was 30 — same reason, for the equity chart
   token_cooldown_minutes: 30         # was 45 — re-enter a previously-sold token a bit sooner
 
 entry:
