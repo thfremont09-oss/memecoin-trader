@@ -42,7 +42,7 @@ market data                                                            ▲
 | Caution level (buy frequency) | **Live-adjustable, 1-5, default 3 "Balanced"** — dashboard slider or CLI, only affects how often it buys, not safety filters; see [Caution level](#caution-level-buy-frequency-slider) |
 | Equity chart zoom | **1MIN / 5M / 1H / 1D / 1W / 1M / YTD / ALL presets** on the dashboard, server-side filtered and downsampled; see [Equity curve zoom](#equity-curve-zoom-1min--5m--1h--1d--1w--1m--ytd--all) |
 | Dashboard refresh speed | **Adjustable 1-60s dial**, client-side only; see [Refresh speed dial](#refresh-speed-dial) |
-| Confetti | **Fires on any >1% equity pop** in a single refresh; see [Confetti on a pop](#confetti-on-a-pop) |
+| Confetti | **Fires on any >0.5% equity pop** in a single refresh; see [Confetti on a pop](#confetti-on-a-pop) |
 | Money | **Simulated** ("paper" mode) by default. A real Solana execution path exists (`--live`) but is off by default and hard-gated — see [Going live](#going-live) |
 
 ### Why the Twitter signal is simulated
@@ -445,7 +445,7 @@ history replaces it as soon as the next real snapshot lands.
 
 ## Confetti on a pop
 
-Any single refresh where total equity jumps by more than 1% since the
+Any single refresh where total equity jumps by more than 0.5% since the
 previous one — a token you're holding just spiked — fires a two-second
 confetti burst over the page. It's a plain `<canvas>` overlay written by
 hand (no external library/CDN), so it works offline and needs nothing

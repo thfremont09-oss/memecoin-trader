@@ -685,14 +685,15 @@
     requestAnimationFrame(frame);
   }
 
-  // Any single refresh where equity popped by more than 1% gets a little
+  // Any single refresh where equity popped by more than 0.5% gets a little
   // celebration -- cooldown keeps a sustained rally from spamming bursts
   // back-to-back every tick.
+  const CONFETTI_THRESHOLD_PCT = 0.5;
   const CONFETTI_COOLDOWN_MS = 15000;
   function maybeCelebrate(equityUsd) {
     if (lastEquityForConfetti > 0) {
       const pctJump = ((equityUsd - lastEquityForConfetti) / lastEquityForConfetti) * 100;
-      if (pctJump > 1 && Date.now() - lastConfettiAt > CONFETTI_COOLDOWN_MS) {
+      if (pctJump > CONFETTI_THRESHOLD_PCT && Date.now() - lastConfettiAt > CONFETTI_COOLDOWN_MS) {
         fireConfetti();
         lastConfettiAt = Date.now();
       }
