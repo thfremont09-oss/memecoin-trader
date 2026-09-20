@@ -434,6 +434,15 @@ takes effect on the very next tick with no page reload. If browser storage
 is unavailable (private browsing, blocked site data), the slider still
 works for that session, it just won't be remembered next time.
 
+The equity chart tracks this same rate, not just the number cards. The
+engine only writes a new `equity_history` row every
+`timing.equity_snapshot_interval_seconds` (5s by default) regardless of
+what the dial is set to, so on every poll the chart appends (or refreshes)
+one extra point for "right now" using the live equity value the same
+response already carries — the line keeps advancing at the dial's pace
+even between the engine's own periodic snapshots, and true persisted
+history replaces it as soon as the next real snapshot lands.
+
 ## Confetti on a pop
 
 Any single refresh where total equity jumps by more than 1% since the

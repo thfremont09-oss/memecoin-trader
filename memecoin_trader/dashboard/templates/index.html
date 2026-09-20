@@ -601,7 +601,23 @@
 
   function updateChart(s) {
     isUp = s.total_return_usd >= 0;
-    equityCurve = s.equity_curve;
+    equityCurve = s.equity_curve.slice();
+
+    // The persisted equity_history rows only advance as fast as the engine's
+    // own equity_snapshot_interval_seconds (5s by default), regardless of
+    // how fast the refresh-speed dial is set -- without this, the graph
+    // would lag behind the number cards (which reflect live cash/position
+    // marks every fetch) whenever the dial is set faster than that. Append
+    // or refresh a synthetic "right now" point using the live equity value
+    // this same response already carries, so the line advances every tick.
+    const last = equityCurve[equityCurve.length - 1];
+    const lastAgeMs = last ? Date.now() - new Date(last.recorded_at).getTime() : Infinity;
+    if (lastAgeMs > 1000) {
+      equityCurve.push({ recorded_at: new Date().toISOString(), equity_usd: s.equity_usd });
+    } else {
+      last.equity_usd = s.equity_usd;
+    }
+
     chart.data.labels = equityCurve.map((p) => p.recorded_at.slice(5, 16).replace('T', ' '));
     chart.data.datasets[0].data = equityCurve.map((p) => p.equity_usd);
     chart.data.datasets[0].borderColor = lineColorFor(isUp);
