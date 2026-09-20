@@ -151,7 +151,17 @@
   .club-cursor {
     position: fixed; top: 0; left: 0; z-index: 600;
     pointer-events: none; user-select: none;
-    transform: translate(-6px, -70px);
+  }
+  #clubCursorCanvas {
+    width: 160px; height: 140px;
+    image-rendering: pixelated;
+    image-rendering: -moz-crisp-edges;
+    image-rendering: crisp-edges;
+    filter: drop-shadow(0 6px 10px rgba(0,0,0,0.5));
+    /* Shifts the canvas so the club's grip (its rotation pivot, at
+       (32, 50) in the 64x56 internal canvas, scaled 2.5x) lands exactly
+       under the cursor -- #clubCursor's own left/top track the mouse. */
+    transform: translate(-80px, -125px);
   }
 </style>
 </head>
@@ -333,7 +343,7 @@
     <canvas id="clubCanvas" class="club-canvas" width="16" height="32"></canvas>
   </div>
   <div id="clubCursor" class="club-cursor" style="display: none;">
-    <canvas id="clubCursorCanvas" class="club-canvas" width="16" height="32"></canvas>
+    <canvas id="clubCursorCanvas" width="64" height="56"></canvas>
   </div>
 
 <script>
@@ -557,6 +567,7 @@
       if (clubState === 'held') {
         mascot.downDurationMs = CLUB_DOWN_MS;
         clubLastUseAt = now;
+        clubSwingAt = now;
       } else {
         mascot.downDurationMs = PUNCH_DOWN_MS;
       }
@@ -755,17 +766,27 @@
 
   // The club: sits idle in the opposite (bottom-left) corner. Click it to
   // actually pick it up -- it then follows your cursor around the page
-  // (a second canvas, #clubCursorCanvas, tracks mousemove) instead of
-  // sitting still, so you aim it yourself. Click on a mascot while it's
-  // in your hand to actually club him (a much longer knockdown than a
-  // bare-handed punch -- see PUNCH_DOWN_MS/CLUB_DOWN_MS above). The club
-  // itself has pointer-events:none while held so your clicks pass through
-  // it to whichever mascot is underneath, rather than the club intercepting
+  // (a second, bigger canvas, #clubCursorCanvas, tracks mousemove) instead
+  // of sitting still, so you aim it yourself. Click on a mascot while it's
+  // in your hand to actually club him -- and actually swing: a brief
+  // rotating arc through the cursor canvas, not just a silent state
+  // change (a much longer knockdown than a bare-handed punch too -- see
+  // PUNCH_DOWN_MS/CLUB_DOWN_MS above). The club itself has
+  // pointer-events:none while held so your clicks pass through it to
+  // whichever mascot is underneath, rather than the club intercepting
   // them. Every hit resets a 3s "still in hand" timer; 3s with no further
   // hit and it teleports back to its idle spot in the corner, ready to be
   // picked up again immediately (no lockout -- "cooldown" here means how
   // long a clubbed mascot stays down, not how long the club is unusable).
   const CLUB_W = 16, CLUB_H = 32;
+  // The cursor-held canvas is much bigger than the sprite itself so a
+  // rotated swing has room to sweep without clipping outside the canvas.
+  const CLUB_CURSOR_W = 64, CLUB_CURSOR_H = 56;
+  const CLUB_PIVOT_LOCAL_X = 8, CLUB_PIVOT_LOCAL_Y = 30; // grip-bottom, in the sprite's own 16x32 space
+  const CLUB_PIVOT_CANVAS_X = CLUB_CURSOR_W / 2, CLUB_PIVOT_CANVAS_Y = CLUB_CURSOR_H - 6;
+  const SWING_DURATION_MS = 220;
+  let clubSwingAt = 0;
+
   const clubSpot = document.getElementById('clubSpot');
   const clubCursorEl = document.getElementById('clubCursor');
   const clubCanvas = document.getElementById('clubCanvas');
@@ -775,8 +796,7 @@
   const clubCursorCtx = clubCursorCanvas.getContext('2d');
   clubCursorCtx.imageSmoothingEnabled = false;
 
-  function drawClub(ctx, held) {
-    ctx.clearRect(0, 0, CLUB_W, CLUB_H);
+  function drawClubBody(ctx, held) {
     const wood = held ? '#c98a5a' : '#a9714a';
     const woodDark = held ? '#8a5a36' : '#7a4d30';
     px(ctx, 6, 16, 4, 16, wood);
@@ -785,6 +805,30 @@
     px(ctx, 3, 2, 10, 16, wood);
     px(ctx, 3, 2, 10, 2, woodDark);
     px(ctx, 3, 14, 10, 2, woodDark);
+  }
+
+  // The idle, corner-parked club -- fixed size, never rotates.
+  function drawClub(ctx) {
+    ctx.clearRect(0, 0, CLUB_W, CLUB_H);
+    drawClubBody(ctx, false);
+  }
+
+  // The cursor-held club. With no swingProgress it's drawn upright
+  // (0deg) at the pivot; mid-swing it sweeps through an arc from +50deg
+  // (wound back) to -50deg (follow-through) as swingProgress goes 0 -> 1.
+  // Standard canvas rotate-around-a-point recipe: translate to where the
+  // pivot should land on this canvas, rotate, then translate back by the
+  // pivot's own local offset so the existing px() coordinates (authored
+  // for the plain 16x32 sprite) end up in the right place relative to it.
+  function drawClubHeld(ctx, swingProgress) {
+    ctx.clearRect(0, 0, CLUB_CURSOR_W, CLUB_CURSOR_H);
+    const angleDeg = swingProgress == null ? 0 : 50 - 100 * swingProgress;
+    ctx.save();
+    ctx.translate(CLUB_PIVOT_CANVAS_X, CLUB_PIVOT_CANVAS_Y);
+    ctx.rotate((angleDeg * Math.PI) / 180);
+    ctx.translate(-CLUB_PIVOT_LOCAL_X, -CLUB_PIVOT_LOCAL_Y);
+    drawClubBody(ctx, true);
+    ctx.restore();
   }
 
   clubCanvas.addEventListener('click', () => {
@@ -807,11 +851,16 @@
     if (clubState === 'held' && clubLastUseAt > 0 && now - clubLastUseAt >= CLUB_RETURN_MS) {
       clubState = 'idle';
       clubLastUseAt = 0;
+      clubSwingAt = 0;
       clubCursorEl.style.display = 'none';
       clubSpot.style.display = '';
     }
-    drawClub(clubCtx, false);
-    if (clubState === 'held') drawClub(clubCursorCtx, true);
+    drawClub(clubCtx);
+    if (clubState === 'held') {
+      const swingElapsed = now - clubSwingAt;
+      const swinging = clubSwingAt > 0 && swingElapsed < SWING_DURATION_MS;
+      drawClubHeld(clubCursorCtx, swinging ? swingElapsed / SWING_DURATION_MS : null);
+    }
 
     for (const m of mascots) {
       if (m.fallenAt !== null) {

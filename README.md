@@ -520,12 +520,17 @@ punch — see below.
 
 Bottom-left corner (opposite the mascots): a small pixel-art club, idle
 and waiting. Click it to actually pick it up — it then follows your
-mouse cursor around the whole page (a second canvas tracks `mousemove`)
-instead of sitting still, so you aim it yourself. Move it over a mascot
-and click him to actually club him. The club itself ignores clicks while
-held (`pointer-events: none`), so your click passes straight through it
-to whichever mascot is underneath, rather than the club intercepting its
-own click.
+mouse cursor around the whole page (a second, bigger canvas tracks
+`mousemove`) instead of sitting still, so you aim it yourself. Move it
+over a mascot and click him to actually club him — the club visibly
+swings, sweeping through a rotating arc (wound back to full
+follow-through, ~220ms) rather than just silently registering the hit.
+The club itself ignores clicks while held (`pointer-events: none`), so
+your click passes straight through it to whichever mascot is underneath,
+rather than the club intercepting its own click. The held/swinging
+canvas is drawn oversized with the club's grip pinned to a fixed pivot
+point so the rotation has room to sweep without clipping outside it —
+the plain idle canvas back in the corner never rotates and stays small.
 
 A club hit is a much harder knockdown than a bare-handed punch: a direct
 click on a mascot with no club in hand keeps him down for 5 seconds
