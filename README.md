@@ -468,9 +468,10 @@ longer rally, just not back-to-back.
 
 ## The corner mascot
 
-Bottom-right corner of the dashboard: a tiny hand-drawn pixel-art guy on
-a 24x32 `<canvas>`, scaled up 4x with `image-rendering: pixelated` for a
-chunky, retro sprite look (think an old NES victory-dance animation, not
+Bottom-right corner of the dashboard: a hand-drawn pixel-art guy on a
+32x40 `<canvas>`, scaled up 3x with `image-rendering: pixelated` for a
+chunky, retro sprite look (a face with eyes and a mouth, a hairstyle,
+distinct hands and shoes — think an old NES victory-dance animation, not
 a static emoji). While total return is flat or positive he cycles through
 a 4-pose dance loop — arms and legs swap sides and the torso leans the
 other way each beat, ~6 poses/sec — and the moment it dips into the red he
@@ -481,6 +482,15 @@ per frame — and it updates on the same `total_return_usd >= 0` rule the
 rest of the page already uses for its green/red split. Which pose set
 plays is also reflected in `#mascot`'s `data-mode` attribute (`dance` or
 `sad`) if you want to hook into it yourself.
+
+**Click him.** He tumbles over, lands dazed (little stars circling his
+head), then sits and cries actual tears for 5 seconds — regardless of
+whether you're actually up or down at the moment — before picking himself
+back up into whatever his normal state (dancing or sad) currently is. The
+whole sequence is driven by a single `mascotFallenAt` timestamp: the
+animation loop derives which frame to show from how long ago that was,
+so clicking him again mid-cry just restarts the 5-second clock rather
+than needing any special-case handling.
 
 ## Caution level (buy-frequency slider)
 

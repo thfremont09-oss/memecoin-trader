@@ -128,10 +128,12 @@
     filter: drop-shadow(0 6px 10px rgba(0,0,0,0.5));
   }
   .mascot-canvas {
-    width: 96px; height: 128px;
+    width: 96px; height: 120px;
     image-rendering: pixelated;
     image-rendering: -moz-crisp-edges;
     image-rendering: crisp-edges;
+    cursor: pointer;
+    pointer-events: auto;
   }
 </style>
 </head>
@@ -303,8 +305,8 @@
     </div>
   </div>
 
-  <div id="mascot" class="mascot" data-mode="{{ 'dance' if summary.total_return_usd >= 0 else 'sad' }}" title="How we're doing">
-    <canvas id="mascotCanvas" class="mascot-canvas" width="24" height="32"></canvas>
+  <div id="mascot" class="mascot" data-mode="{{ 'dance' if summary.total_return_usd >= 0 else 'sad' }}" title="Tap him">
+    <canvas id="mascotCanvas" class="mascot-canvas" width="32" height="40"></canvas>
   </div>
 
 <script>
@@ -485,48 +487,90 @@
     document.getElementById('equityChangeLabel').className = 'change ' + pnlClass(s.total_return_usd);
   }
 
-  // The corner mascot: a tiny hand-drawn pixel-art dude on a 24x32 canvas,
-  // scaled up 4x with image-rendering:pixelated for a chunky retro look
-  // (think an NES victory-dance sprite, not a single static emoji). Same
+  // The corner mascot: a hand-drawn pixel-art dude on a 32x40 canvas, scaled
+  // up 3x with image-rendering:pixelated for a chunky retro look (think an
+  // NES victory-dance sprite, not a single static emoji). Same
   // total_return_usd >= 0 convention as every other green/red split on this
-  // page decides which animation set plays.
+  // page decides which animation set plays -- except for 5s after a click,
+  // when he tumbles over and cries regardless, then resumes whatever that
+  // convention says.
+  const MASCOT_W = 32, MASCOT_H = 40;
   const mascotCanvas = document.getElementById('mascotCanvas');
   const mascotCtx = mascotCanvas.getContext('2d');
   mascotCtx.imageSmoothingEnabled = false;
   let mascotMode = {{ ('dance' if summary.total_return_usd >= 0 else 'sad')|tojson }};
+  let mascotFallenAt = null;
 
   function px(ctx, x, y, w, h, color) {
     ctx.fillStyle = color;
     ctx.fillRect(x, y, w, h);
   }
 
-  // Four alternating poses -- arms/legs swap sides and the torso leans
-  // opposite each beat, the same kind of simple limb-swap loop classic
-  // 8-bit victory-dance sprites use to read as "dancing" at a tiny size.
+  // Shared face: eyes plus a mouth shape that reads as a small curve at this
+  // scale (a couple of corner pixels raised or lowered relative to the
+  // center, rather than a single flat line).
+  function drawFace(ctx, eyeColor, mouthColor, mood, yOffset) {
+    yOffset = yOffset || 0;
+    px(ctx, 13, 9 + yOffset, 2, 2, eyeColor);
+    px(ctx, 18, 9 + yOffset, 2, 2, eyeColor);
+    if (mood === 'happy') {
+      px(ctx, 14, 12 + yOffset, 4, 1, mouthColor);
+      px(ctx, 13, 11 + yOffset, 1, 1, mouthColor);
+      px(ctx, 18, 11 + yOffset, 1, 1, mouthColor);
+    } else if (mood === 'sad') {
+      px(ctx, 14, 12 + yOffset, 4, 1, mouthColor);
+      px(ctx, 13, 13 + yOffset, 1, 1, mouthColor);
+      px(ctx, 18, 13 + yOffset, 1, 1, mouthColor);
+    } else {
+      // 'crying': mouth wide open in a little wail
+      px(ctx, 14, 11 + yOffset, 4, 3, mouthColor);
+    }
+  }
+
+  function drawHeadAndHair(ctx, skin, hair, mouthColor, mood, spike) {
+    px(ctx, 10, 3, 12, 3, hair);
+    if (spike) px(ctx, 20, 0, 3, 4, hair);
+    px(ctx, 11, 6, 10, 8, skin);
+    drawFace(ctx, '#161616', mouthColor, mood);
+  }
+
+  // Four alternating poses -- arms/legs swap sides, hands get their own
+  // (slightly lighter) accent block, and the torso leans opposite each
+  // beat -- the kind of simple limb-swap loop classic 8-bit victory-dance
+  // sprites use to read as "dancing" at a tiny size.
   const DANCE_POSES = [
-    { lean: -1, armL: [3, 12, 4, 3], armR: [17, 4, 4, 8], legL: [6, 20, 4, 9], legR: [13, 20, 4, 9] },
-    { lean: 0, armL: [4, 10, 4, 4], armR: [16, 10, 4, 4], legL: [9, 20, 3, 9], legR: [12, 20, 3, 9] },
-    { lean: 1, armL: [3, 4, 4, 8], armR: [17, 12, 4, 3], legL: [13, 20, 4, 9], legR: [6, 20, 4, 9] },
-    { lean: 0, armL: [4, 10, 4, 4], armR: [16, 10, 4, 4], legL: [8, 20, 4, 9], legR: [12, 20, 4, 9] },
+    { lean: -1, armL: [5, 15, 5, 9], handL: [4, 14, 4, 4], armR: [23, 19, 5, 6], handR: [23, 23, 5, 4],
+      legL: [12, 27, 4, 9], legR: [17, 27, 4, 9] },
+    { lean: 0, armL: [6, 18, 5, 6], handL: [4, 22, 4, 4], armR: [21, 18, 5, 6], handR: [24, 22, 4, 4],
+      legL: [10, 27, 4, 9], legR: [19, 27, 4, 9] },
+    { lean: 1, armL: [4, 19, 5, 6], handL: [3, 23, 4, 4], armR: [22, 15, 5, 9], handR: [23, 14, 4, 4],
+      legL: [17, 27, 4, 9], legR: [12, 27, 4, 9] },
+    { lean: 0, armL: [6, 18, 5, 6], handL: [4, 22, 4, 4], armR: [21, 18, 5, 6], handR: [24, 22, 4, 4],
+      legL: [13, 27, 4, 9], legR: [16, 27, 4, 9] },
   ];
   const DANCE_FRAME_MS = 160;
 
   function drawDanceFrame(frameIndex) {
     const ctx = mascotCtx;
-    ctx.clearRect(0, 0, 24, 32);
-    const skin = '#f2c29a', hair = '#2b1d12', shirt = '#3ecf8e', pants = '#1c2b57', shoe = '#3a3a3a';
+    ctx.clearRect(0, 0, MASCOT_W, MASCOT_H);
+    const skin = '#f2c29a', hand = '#ffdcb8', hair = '#2b1d12', shirt = '#3ecf8e',
+      shirtDark = '#2fa876', pants = '#1c2b57', shoe = '#3a3a3a';
     const pose = DANCE_POSES[frameIndex % DANCE_POSES.length];
     ctx.save();
     ctx.translate(pose.lean, 0);
-    px(ctx, 7, 1, 10, 3, hair);
-    px(ctx, 8, 3, 8, 6, skin);
-    px(ctx, 9, 10, 6, 9, shirt);
+    drawHeadAndHair(ctx, skin, hair, '#7a3b2e', 'happy', true);
+    px(ctx, 12, 14, 8, 11, shirt);
+    px(ctx, 15, 14, 1, 1, shirtDark);
+    px(ctx, 16, 14, 1, 1, shirtDark);
+    px(ctx, 12, 24, 8, 1, shirtDark);
     px(ctx, ...pose.armL, skin);
+    px(ctx, ...pose.handL, hand);
     px(ctx, ...pose.armR, skin);
+    px(ctx, ...pose.handR, hand);
     px(ctx, ...pose.legL, pants);
     px(ctx, ...pose.legR, pants);
-    px(ctx, pose.legL[0] - 1, 28, pose.legL[2] + 2, 2, shoe);
-    px(ctx, pose.legR[0] - 1, 28, pose.legR[2] + 2, 2, shoe);
+    px(ctx, pose.legL[0] - 1, 35, pose.legL[2] + 3, 3, shoe);
+    px(ctx, pose.legR[0] - 1, 35, pose.legR[2] + 3, 3, shoe);
     ctx.restore();
   }
 
@@ -536,18 +580,104 @@
 
   function drawSadFrame(frameIndex) {
     const ctx = mascotCtx;
-    ctx.clearRect(0, 0, 24, 32);
-    const skin = '#c9c9c9', hair = '#333333', shirt = '#4a4a4a', pants = '#2e2e2e', shoe = '#3a3a3a';
+    ctx.clearRect(0, 0, MASCOT_W, MASCOT_H);
+    const skin = '#c9c9c9', hand = '#d8d8d8', hair = '#333333', shirt = '#4a4a4a',
+      shirtDark = '#3a3a3a', pants = '#2e2e2e', shoe = '#3a3a3a';
     const bob = frameIndex % 2;
-    px(ctx, 7, 3 + bob, 10, 3, hair);
-    px(ctx, 8, 5 + bob, 8, 6, skin);
-    px(ctx, 9, 12 + bob, 6, 8, shirt);
-    px(ctx, 5, 13 + bob, 3, 6, skin);
-    px(ctx, 16, 13 + bob, 3, 6, skin);
-    px(ctx, 9, 20 + bob, 3, 8, pants);
-    px(ctx, 12, 20 + bob, 3, 8, pants);
-    px(ctx, 8, 27 + bob, 4, 2, shoe);
-    px(ctx, 12, 27 + bob, 4, 2, shoe);
+    ctx.save();
+    ctx.translate(0, bob);
+    drawHeadAndHair(ctx, skin, hair, '#555555', 'sad', false);
+    px(ctx, 12, 15, 8, 10, shirt);
+    px(ctx, 12, 24, 8, 1, shirtDark);
+    px(ctx, 6, 16, 4, 8, skin);
+    px(ctx, 4, 23, 4, 4, hand);
+    px(ctx, 22, 16, 4, 8, skin);
+    px(ctx, 24, 23, 4, 4, hand);
+    px(ctx, 13, 25, 3, 10, pants);
+    px(ctx, 16, 25, 3, 10, pants);
+    px(ctx, 12, 34, 5, 3, shoe);
+    px(ctx, 15, 34, 5, 3, shoe);
+    ctx.restore();
+  }
+
+  // Tap reaction: a quick 2-frame tumble, then a slumped-on-the-ground cry
+  // loop (tears alternating so they read as falling) for the rest of the
+  // 5 seconds, regardless of win/loss state.
+  const FALL_TUMBLE_MS = 350;
+  const FALL_CRY_FRAME_MS = 350;
+  const FALL_TOTAL_MS = 5000;
+
+  function drawTumbleFrame(frameIndex) {
+    const ctx = mascotCtx;
+    ctx.clearRect(0, 0, MASCOT_W, MASCOT_H);
+    const skin = '#f2c29a', hand = '#ffdcb8', hair = '#2b1d12', shirt = '#3ecf8e',
+      pants = '#1c2b57', shoe = '#3a3a3a';
+    ctx.save();
+    if (frameIndex === 0) {
+      // mid-tumble: tipping sideways, arms flailing up
+      ctx.translate(2, 4);
+      ctx.rotate(-0.35);
+      px(ctx, 10, 3, 12, 3, hair);
+      px(ctx, 11, 6, 10, 8, skin);
+      drawFace(ctx, '#161616', '#7a3b2e', 'crying');
+      px(ctx, 12, 14, 8, 10, shirt);
+      px(ctx, 2, 10, 5, 4, skin);
+      px(ctx, 25, 10, 5, 4, skin);
+      px(ctx, 11, 24, 4, 9, pants);
+      px(ctx, 17, 24, 4, 9, pants);
+      px(ctx, 10, 32, 5, 3, shoe);
+      px(ctx, 17, 32, 5, 3, shoe);
+    } else {
+      // landed, flat on the ground, dazed -- little stars circling his head
+      // instead of tears (those start once the cry loop takes over)
+      px(ctx, 8, 12, 12, 3, hair);
+      px(ctx, 9, 15, 10, 7, skin);
+      px(ctx, 12, 18, 2, 2, '#161616');
+      px(ctx, 16, 18, 2, 2, '#161616');
+      px(ctx, 13, 20, 3, 1, '#161616');
+      px(ctx, 10, 22, 8, 9, shirt);
+      px(ctx, 3, 24, 6, 4, skin);
+      px(ctx, 21, 24, 6, 4, skin);
+      px(ctx, 10, 31, 4, 6, pants);
+      px(ctx, 16, 31, 4, 6, pants);
+      px(ctx, 9, 36, 5, 3, shoe);
+      px(ctx, 16, 36, 5, 3, shoe);
+      px(ctx, 6, 6, 2, 2, '#ffd54a');
+      px(ctx, 23, 8, 2, 2, '#ffd54a');
+      px(ctx, 16, 3, 2, 2, '#ffd54a');
+    }
+    ctx.restore();
+  }
+
+  function drawCryFrame(frameIndex) {
+    const ctx = mascotCtx;
+    ctx.clearRect(0, 0, MASCOT_W, MASCOT_H);
+    const skin = '#f2c29a', hand = '#ffdcb8', hair = '#2b1d12', shirt = '#3ecf8e',
+      pants = '#1c2b57', shoe = '#3a3a3a', tear = '#5aa7ff';
+    // sitting on the ground, legs out flat, head down, tears flying
+    px(ctx, 10, 8, 12, 3, hair);
+    px(ctx, 11, 11, 10, 8, skin);
+    drawFace(ctx, '#161616', '#7a3b2e', 'crying', 5);
+    px(ctx, 12, 19, 8, 9, shirt);
+    px(ctx, 5, 20, 4, 7, skin);
+    px(ctx, 3, 26, 4, 4, hand);
+    px(ctx, 23, 20, 4, 7, skin);
+    px(ctx, 25, 26, 4, 4, hand);
+    px(ctx, 8, 28, 9, 4, pants);
+    px(ctx, 17, 28, 9, 4, pants);
+    px(ctx, 6, 30, 4, 3, shoe);
+    px(ctx, 24, 30, 4, 3, shoe);
+    const drop = frameIndex % 2;
+    px(ctx, 12, 17 + drop * 3, 1, 2, tear);
+    px(ctx, 20, 18 + drop * 3, 1, 2, tear);
+  }
+
+  function drawFallenFrame(elapsed) {
+    if (elapsed < FALL_TUMBLE_MS) {
+      drawTumbleFrame(Math.floor(elapsed / (FALL_TUMBLE_MS / 2)) % 2);
+    } else {
+      drawCryFrame(Math.floor((elapsed - FALL_TUMBLE_MS) / FALL_CRY_FRAME_MS));
+    }
   }
 
   // Frame index is derived from the wall clock rather than an incrementing
@@ -555,6 +685,15 @@
   // green<->red) never needs its own timer reset -- the right frame for
   // whichever mode is active "just falls out" of Date.now().
   function animateMascot() {
+    if (mascotFallenAt !== null) {
+      const elapsed = Date.now() - mascotFallenAt;
+      if (elapsed < FALL_TOTAL_MS) {
+        drawFallenFrame(elapsed);
+        requestAnimationFrame(animateMascot);
+        return;
+      }
+      mascotFallenAt = null;
+    }
     if (mascotMode === 'dance') {
       drawDanceFrame(Math.floor(Date.now() / DANCE_FRAME_MS));
     } else {
@@ -563,6 +702,10 @@
     requestAnimationFrame(animateMascot);
   }
   requestAnimationFrame(animateMascot);
+
+  mascotCanvas.addEventListener('click', () => {
+    mascotFallenAt = Date.now();
+  });
 
   function renderMascot(s) {
     mascotMode = s.total_return_usd >= 0 ? 'dance' : 'sad';
