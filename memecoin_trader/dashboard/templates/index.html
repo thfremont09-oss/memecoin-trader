@@ -101,6 +101,14 @@
     display: flex; justify-content: space-between; color: var(--muted); font-size: 11px;
   }
   .caution-note { color: var(--muted); font-size: 12px; margin-top: 10px; }
+  .range-row { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+  .range-btn {
+    border: 1px solid var(--border); background: transparent; color: var(--muted);
+    font-size: 12px; font-weight: 600; padding: 4px 12px; border-radius: 6px;
+    cursor: pointer;
+  }
+  .range-btn:hover { border-color: var(--accent); color: var(--text); }
+  .range-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
 </style>
 </head>
 <body>
@@ -177,6 +185,14 @@
         <span id="equityChangeText">{{ "%+.2f"|format(summary.total_return_usd) }} ({{ "%+.1f"|format(summary.total_return_pct) }}%) since start</span>
         <span class="baseline-note">· baseline ${{ "%.2f"|format(summary.starting_balance_usd) }}</span>
       </span>
+    </div>
+    <div class="range-row" id="rangeRow">
+      {% for r in ["5m", "1h", "1d", "1w", "1m", "ytd", "all"] %}
+      <button
+        class="range-btn {{ 'active' if summary.equity_range == r else '' }}"
+        data-range="{{ r }}"
+      >{{ r.upper() }}</button>
+      {% endfor %}
     </div>
     <canvas id="equityChart"></canvas>
   </div>
@@ -261,6 +277,7 @@
   let equityCurve = {{ summary.equity_curve|tojson }};
   const startingBalance = {{ summary.starting_balance_usd }};
   let isUp = {{ 'true' if summary.total_return_usd >= 0 else 'false' }};
+  let currentRange = {{ summary.equity_range|tojson }};
   const gridColor = '#1a1e27';
   const mutedColor = '#8b93a3';
 
@@ -574,9 +591,16 @@
     chart.update('none');
   }
 
+  function renderRangeButtons(s) {
+    currentRange = s.equity_range;
+    document.querySelectorAll('.range-btn').forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.range === currentRange);
+    });
+  }
+
   async function refreshDashboard() {
     try {
-      const resp = await fetch('/api/summary');
+      const resp = await fetch('/api/summary?range=' + encodeURIComponent(currentRange));
       if (!resp.ok) return;  // e.g. a transient 401/500 -- just try again next tick
       const s = await resp.json();
       renderStatus(s);
@@ -585,6 +609,7 @@
       renderTrades(s);
       renderPerformance(s);
       renderCaution(s);
+      renderRangeButtons(s);
       updateChart(s);
     } catch (err) {
       // Network hiccup -- silently retry on the next interval rather than
@@ -593,6 +618,16 @@
   }
 
   setInterval(refreshDashboard, 5000);
+
+  // Clicking a zoom preset (5M/1H/1D/1W/1M/YTD/ALL) re-fetches immediately
+  // instead of waiting for the next 5s tick, so the chart responds right away.
+  document.querySelectorAll('.range-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      currentRange = btn.dataset.range;
+      document.querySelectorAll('.range-btn').forEach((b) => b.classList.toggle('active', b === btn));
+      refreshDashboard();
+    });
+  });
 
   async function postAction(url, btn, busyText, idleText) {
     if (btn) { btn.disabled = true; btn.textContent = busyText; }

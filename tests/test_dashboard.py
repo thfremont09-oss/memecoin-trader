@@ -176,3 +176,52 @@ def test_summary_reflects_current_caution_level(client):
     data = resp.json()
     assert data["caution_level"] == 5
     assert data["caution_label"] == "Aggressive"
+
+
+def test_index_renders_equity_range_buttons_defaulting_to_all(client):
+    c, _ = client
+    resp = c.get("/")
+    for r in ["5M", "1H", "1D", "1W", "1M", "YTD", "ALL"]:
+        assert f">{r}<" in resp.text
+    assert 'data-range="all"' in resp.text
+
+
+def _seed_equity_history(db_path):
+    from datetime import datetime, timedelta, timezone
+
+    conn = get_connection(db_path)
+    now = datetime.now(timezone.utc)
+    conn.execute(
+        "INSERT INTO equity_history (cash_usd, positions_value_usd, equity_usd, recorded_at) VALUES (?, ?, ?, ?)",
+        ("90", "0", "90", (now - timedelta(days=2)).isoformat()),
+    )
+    conn.execute(
+        "INSERT INTO equity_history (cash_usd, positions_value_usd, equity_usd, recorded_at) VALUES (?, ?, ?, ?)",
+        ("110", "0", "110", (now - timedelta(minutes=1)).isoformat()),
+    )
+    conn.commit()
+    conn.close()
+
+
+def test_api_summary_range_param_filters_the_equity_curve(client):
+    c, db_path = client
+    _seed_equity_history(db_path)
+
+    resp = c.get("/api/summary?range=1d")
+    data = resp.json()
+    assert data["equity_range"] == "1d"
+    assert [p["equity_usd"] for p in data["equity_curve"]] == [110.0]
+
+    resp = c.get("/api/summary?range=all")
+    data = resp.json()
+    assert [p["equity_usd"] for p in data["equity_curve"]] == [90.0, 110.0]
+
+
+def test_api_summary_unknown_range_falls_back_to_all(client):
+    c, db_path = client
+    _seed_equity_history(db_path)
+
+    resp = c.get("/api/summary?range=nonsense")
+    data = resp.json()
+    assert data["equity_range"] == "all"
+    assert len(data["equity_curve"]) == 2

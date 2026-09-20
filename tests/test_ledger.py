@@ -135,6 +135,40 @@ def test_equity_snapshot_and_curve(ledger):
     assert curve[0]["equity_usd"] == pytest.approx(79.8 + 25)  # 100 - 20.2 cash + 25 positions value
 
 
+def _insert_equity_snapshot(conn, recorded_at: str, equity: str = "100"):
+    conn.execute(
+        "INSERT INTO equity_history (cash_usd, positions_value_usd, equity_usd, recorded_at) VALUES (?, ?, ?, ?)",
+        (equity, "0", equity, recorded_at),
+    )
+
+
+def test_get_equity_curve_since_iso_excludes_older_snapshots(conn, ledger):
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    _insert_equity_snapshot(conn, (now - timedelta(hours=2)).isoformat(), "90")
+    _insert_equity_snapshot(conn, (now - timedelta(minutes=1)).isoformat(), "110")
+
+    curve = ledger.get_equity_curve(since_iso=(now - timedelta(hours=1)).isoformat())
+
+    assert len(curve) == 1
+    assert curve[0]["equity_usd"] == 110.0
+
+
+def test_get_equity_curve_downsamples_to_max_points(conn, ledger):
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    for i in range(50):
+        _insert_equity_snapshot(conn, (now - timedelta(minutes=50 - i)).isoformat(), str(100 + i))
+
+    curve = ledger.get_equity_curve(max_points=10)
+
+    assert len(curve) <= 10
+    # the most recent point is always kept exactly, never smoothed away
+    assert curve[-1]["equity_usd"] == 149.0
+
+
 def test_price_history_is_ordered_oldest_first(ledger):
     ledger.record_price_snapshot("TOKEN1", Decimal("1.0"), Decimal("20000"), Decimal("50000"))
     ledger.record_price_snapshot("TOKEN1", Decimal("1.1"), Decimal("20000"), Decimal("50000"))

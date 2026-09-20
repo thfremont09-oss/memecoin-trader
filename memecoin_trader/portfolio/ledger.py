@@ -34,6 +34,19 @@ def _parse_dt(value: str) -> datetime:
     return datetime.fromisoformat(value)
 
 
+def _downsample(rows: list, max_points: int) -> list:
+    """Picks up to `max_points` evenly-spaced rows from an oldest-first
+    sequence, always keeping the most recent one exactly (so the chart's
+    latest value is never stale/interpolated)."""
+    if max_points <= 0 or len(rows) <= max_points:
+        return rows
+    step = len(rows) / max_points
+    indices = sorted({int(i * step) for i in range(max_points)})
+    if indices[-1] != len(rows) - 1:
+        indices[-1] = len(rows) - 1
+    return [rows[i] for i in indices]
+
+
 def _row_to_position(row: sqlite3.Row) -> Position:
     return Position(
         id=row["id"],
@@ -387,16 +400,33 @@ class Ledger:
             (str(cash), str(positions_value_usd), str(equity), _now_iso()),
         )
 
-    def get_equity_curve(self, limit: int = 1000) -> list[dict]:
-        rows = self._conn.execute(
-            """
-            SELECT * FROM (
+    def get_equity_curve(self, since_iso: str | None = None, max_points: int = 500) -> list[dict]:
+        """Returns equity snapshots oldest-first, optionally restricted to
+        `recorded_at >= since_iso` (e.g. for the dashboard's zoom-range
+        selector). Downsampled to `max_points` evenly-spaced rows -- without
+        this, a long-lived bot's "1 month" or "all time" range would pull
+        hundreds of thousands of 5-second snapshots into one HTTP response.
+        """
+        if since_iso is not None:
+            rows = self._conn.execute(
+                """
                 SELECT cash_usd, positions_value_usd, equity_usd, recorded_at
-                FROM equity_history ORDER BY recorded_at DESC LIMIT ?
-            ) ORDER BY recorded_at ASC
-            """,
-            (limit,),
-        ).fetchall()
+                FROM equity_history WHERE recorded_at >= ? ORDER BY recorded_at ASC
+                """,
+                (since_iso,),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                """
+                SELECT * FROM (
+                    SELECT cash_usd, positions_value_usd, equity_usd, recorded_at
+                    FROM equity_history ORDER BY recorded_at DESC LIMIT ?
+                ) ORDER BY recorded_at ASC
+                """,
+                (max_points * 20,),  # generous pre-filter cap before downsampling below
+            ).fetchall()
+
+        rows = _downsample(rows, max_points)
         return [
             {
                 "recorded_at": r["recorded_at"],

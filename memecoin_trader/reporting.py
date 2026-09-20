@@ -1,9 +1,31 @@
 """Shared summary-building logic for the CLI `status` command and the dashboard."""
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from memecoin_trader.portfolio.ledger import CAUTION_LEVEL_LABELS, Ledger
+
+# The dashboard's equity-curve zoom presets, ordered zoomed-in to zoomed-out.
+# "ytd"/"all" have no fixed timedelta -- see _range_since_iso().
+EQUITY_CURVE_RANGES: list[str] = ["5m", "1h", "1d", "1w", "1m", "ytd", "all"]
+_EQUITY_CURVE_DELTAS: dict[str, timedelta] = {
+    "5m": timedelta(minutes=5),
+    "1h": timedelta(hours=1),
+    "1d": timedelta(days=1),
+    "1w": timedelta(days=7),
+    "1m": timedelta(days=30),
+}
+
+
+def _range_since_iso(equity_range: str) -> str | None:
+    now = datetime.now(timezone.utc)
+    delta = _EQUITY_CURVE_DELTAS.get(equity_range)
+    if delta is not None:
+        return (now - delta).isoformat()
+    if equity_range == "ytd":
+        return datetime(now.year, 1, 1, tzinfo=timezone.utc).isoformat()
+    return None  # "all", or an unrecognized range -- no filter
 
 
 def _mark_price(ledger: Ledger, token_address: str, fallback: Decimal) -> Decimal:
@@ -11,7 +33,7 @@ def _mark_price(ledger: Ledger, token_address: str, fallback: Decimal) -> Decima
     return price if price is not None else fallback
 
 
-def build_summary(ledger: Ledger) -> dict:
+def build_summary(ledger: Ledger, equity_range: str = "all") -> dict:
     state = ledger.get_portfolio_state()
     open_positions = ledger.get_open_positions()
 
@@ -76,6 +98,7 @@ def build_summary(ledger: Ledger) -> dict:
         "total_return_pct": total_return_pct,
         "open_positions": position_rows,
         "recent_trades": recent_trades,
-        "equity_curve": ledger.get_equity_curve(limit=1000),
+        "equity_range": equity_range if equity_range in EQUITY_CURVE_RANGES else "all",
+        "equity_curve": ledger.get_equity_curve(since_iso=_range_since_iso(equity_range)),
         "performance_by_source": ledger.get_performance_by_source(),
     }

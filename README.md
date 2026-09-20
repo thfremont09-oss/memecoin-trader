@@ -40,6 +40,7 @@ market data                                                            ▲
 | Rug-pull screening | **Real** — [RugCheck.xyz](https://rugcheck.xyz) checked before every buy (mint/freeze authority, LP lock, holder risk), plus liquidity/FDV and price-spike heuristics from DexScreener data |
 | Trade-quality ML model | **On by default, but a no-op until trained** — auto-trains itself on the bot's own closed-trade history once there's enough of it; see [Machine learning](#machine-learning) |
 | Caution level (buy frequency) | **Live-adjustable, 1-5, default 3 "Balanced"** — dashboard slider or CLI, only affects how often it buys, not safety filters; see [Caution level](#caution-level-buy-frequency-slider) |
+| Equity chart zoom | **5M / 1H / 1D / 1W / 1M / YTD / ALL presets** on the dashboard, server-side filtered and downsampled; see [Equity curve zoom](#equity-curve-zoom-5m--1h--1d--1w--1m--ytd--all) |
 | Money | **Simulated** ("paper" mode) by default. A real Solana execution path exists (`--live`) but is off by default and hard-gated — see [Going live](#going-live) |
 
 ### Why the Twitter signal is simulated
@@ -401,6 +402,25 @@ research angles agree on is stronger evidence than either alone, so a
 signal too weak by itself can still clear the bar once corroborated. A
 single strong signal from one source still gets through on its own merits;
 this only ever helps a borderline case, never blocks anything.
+
+## Equity curve zoom (5M / 1H / 1D / 1W / 1M / YTD / ALL)
+
+The dashboard's equity chart has a row of zoom presets above it, the same
+idea as a stock app's chart range buttons. Clicking one re-fetches just
+that window and redraws the chart immediately (not waiting for the next
+5s auto-refresh); the auto-refresh then keeps redrawing at whatever
+range is currently selected as new snapshots come in.
+
+Every preset is served by the same `/api/summary?range=<key>` endpoint
+(`5m`, `1h`, `1d`, `1w`, `1m`, `ytd`, `all`), which filters
+`equity_history` by `recorded_at` server-side rather than shipping the
+whole table to the browser and filtering there. A window with more than
+500 snapshots in it (e.g. a month at the default 5-second snapshot
+interval) is evenly downsampled to 500 points — always keeping the most
+recent point exact — so "1M" or "ALL" stays fast and the chart doesn't
+try to render hundreds of thousands of points. Defaults to `all` (today's
+full history) if you load the page or hit the API with no `range` at
+all, or with one it doesn't recognize.
 
 ## Caution level (buy-frequency slider)
 

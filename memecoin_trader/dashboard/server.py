@@ -56,17 +56,17 @@ def _ledger() -> Ledger:
 
 
 @app.get("/", response_class=HTMLResponse)
-def index(request: Request, _auth: None = Depends(require_auth)):
+def index(request: Request, range: str = "all", _auth: None = Depends(require_auth)):
     settings = load_settings()
-    summary = build_summary(_ledger())
+    summary = build_summary(_ledger(), equity_range=range)
     return templates.TemplateResponse(
         request, "index.html", {"summary": summary, "mode": settings.mode}
     )
 
 
 @app.get("/api/summary")
-def api_summary(_auth: None = Depends(require_auth)):
-    return build_summary(_ledger())
+def api_summary(range: str = "all", _auth: None = Depends(require_auth)):
+    return build_summary(_ledger(), equity_range=range)
 
 
 @app.post("/api/offline")
