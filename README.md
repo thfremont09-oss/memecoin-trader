@@ -45,7 +45,7 @@ market data                                                            ▲
 | Equity chart zoom | **1MIN / 5M / 1H / 1D / 1W / 1M / YTD / ALL presets** on the dashboard, server-side filtered and downsampled; see [Equity curve zoom](#equity-curve-zoom-1min--5m--1h--1d--1w--1m--ytd--all) |
 | Dashboard refresh speed | **Adjustable 1-60s dial**, client-side only; see [Refresh speed dial](#refresh-speed-dial) |
 | Confetti | **Fires on any >0.5% equity pop** in a single refresh; see [Confetti on a pop](#confetti-on-a-pop) |
-| Corner mascot | **Dances in the green, slumps sad in the red** — see [The corner mascot](#the-corner-mascot) |
+| Corner mascot crew | **A few dancing friends, each punchable independently** — see [The corner mascot (and his friends)](#the-corner-mascot-and-his-friends) |
 | Money | **Simulated** ("paper" mode) by default. A real Solana execution path exists (`--live`) but is off by default and hard-gated — see [Going live](#going-live) |
 
 ### Why the Twitter signal is simulated
@@ -466,31 +466,36 @@ installed. A 15-second cooldown keeps a sustained rally from firing a new
 burst on every single tick; it can still fire again and again across a
 longer rally, just not back-to-back.
 
-## The corner mascot
+## The corner mascot (and his friends)
 
-Bottom-right corner of the dashboard: a hand-drawn pixel-art guy on a
-32x40 `<canvas>`, scaled up 3x with `image-rendering: pixelated` for a
-chunky, retro sprite look (a face with eyes and a mouth, a hairstyle,
-distinct hands and shoes — think an old NES victory-dance animation, not
-a static emoji). While total return is flat or positive he cycles through
-a 4-pose dance loop — arms and legs swap sides and the torso leans the
-other way each beat, ~6 poses/sec — and the moment it dips into the red he
-switches to a slow, desaturated 2-frame droop instead: head and shoulders
-sink and settle, arms hanging at his sides. No images, sprite sheets, or
+Bottom-right corner of the dashboard: a little crew of hand-drawn
+pixel-art dudes, each on his own 32x40 `<canvas>` scaled up 3x with
+`image-rendering: pixelated` for a chunky, retro sprite look (a face with
+eyes and a mouth, a hairstyle, distinct hands and shoes — think an old
+NES victory-dance animation, not a static emoji). Each friend has his own
+color palette (different hair/shirt/pants) so they read as distinct
+people, not clones, and their dance poses are slightly out of phase with
+each other so the group doesn't move in unison like a chorus line.
+
+While total return is flat or positive they all cycle through a 4-pose
+dance loop — arms and legs swap sides and the torso leans the other way
+each beat, ~6 poses/sec — and the moment it dips into the red they switch
+to a slow, desaturated 2-frame droop instead: head and shoulders sink and
+settle, arms hanging at their sides. No images, sprite sheets, or
 external libraries — every pose is just a handful of `fillRect()` calls
 per frame — and it updates on the same `total_return_usd >= 0` rule the
-rest of the page already uses for its green/red split. Which pose set
-plays is also reflected in `#mascot`'s `data-mode` attribute (`dance` or
-`sad`) if you want to hook into it yourself.
+rest of the page already uses for its green/red split. Which pose set is
+playing is also reflected in `#mascotGroup`'s `data-mode` attribute
+(`dance` or `sad`) if you want to hook into it yourself.
 
-**Click him.** He tumbles over, lands dazed (little stars circling his
-head), then sits and cries actual tears for 5 seconds — regardless of
-whether you're actually up or down at the moment — before picking himself
-back up into whatever his normal state (dancing or sad) currently is. The
-whole sequence is driven by a single `mascotFallenAt` timestamp: the
-animation loop derives which frame to show from how long ago that was,
-so clicking him again mid-cry just restarts the 5-second clock rather
-than needing any special-case handling.
+**Click any one of them.** That friend tumbles over, lands dazed (little
+stars circling his head, still in his own colors), then sits and cries
+actual tears for 5 seconds — regardless of whether the group is actually
+up or down at the moment — before picking himself back up into whatever
+the group's normal state (dancing or sad) currently is. Each friend
+tracks his own `fallenAt` timestamp independently, so punching one
+doesn't interrupt the others, and clicking him again mid-cry just resets
+his own 5-second clock rather than needing any special-case handling.
 
 ## Caution level (buy-frequency slider)
 

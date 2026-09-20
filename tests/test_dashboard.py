@@ -190,7 +190,7 @@ def test_mascot_dances_when_flat_or_in_the_green(client):
     c, _ = client
     resp = c.get("/")
     assert 'data-mode="dance"' in resp.text
-    assert 'id="mascotCanvas"' in resp.text
+    assert resp.text.count('class="mascot-canvas"') == 3  # a little crew, not a lone guy
 
 
 def test_mascot_is_sad_when_in_the_red(client):

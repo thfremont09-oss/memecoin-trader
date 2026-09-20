@@ -122,18 +122,19 @@
     width: 12px; height: 12px; border-radius: 50%; border: none;
     background: var(--accent); cursor: pointer;
   }
-  .mascot {
+  .mascot-group {
     position: fixed; bottom: 20px; right: 24px; z-index: 500;
+    display: flex; align-items: flex-end; gap: 2px;
     pointer-events: none; user-select: none;
-    filter: drop-shadow(0 6px 10px rgba(0,0,0,0.5));
   }
   .mascot-canvas {
-    width: 96px; height: 120px;
+    width: 80px; height: 100px;
     image-rendering: pixelated;
     image-rendering: -moz-crisp-edges;
     image-rendering: crisp-edges;
     cursor: pointer;
     pointer-events: auto;
+    filter: drop-shadow(0 6px 10px rgba(0,0,0,0.5));
   }
 </style>
 </head>
@@ -305,8 +306,10 @@
     </div>
   </div>
 
-  <div id="mascot" class="mascot" data-mode="{{ 'dance' if summary.total_return_usd >= 0 else 'sad' }}" title="Tap him">
-    <canvas id="mascotCanvas" class="mascot-canvas" width="32" height="40"></canvas>
+  <div id="mascotGroup" class="mascot-group" data-mode="{{ 'dance' if summary.total_return_usd >= 0 else 'sad' }}" title="Tap them">
+    <canvas class="mascot-canvas" width="32" height="40"></canvas>
+    <canvas class="mascot-canvas" width="32" height="40"></canvas>
+    <canvas class="mascot-canvas" width="32" height="40"></canvas>
   </div>
 
 <script>
@@ -487,19 +490,30 @@
     document.getElementById('equityChangeLabel').className = 'change ' + pnlClass(s.total_return_usd);
   }
 
-  // The corner mascot: a hand-drawn pixel-art dude on a 32x40 canvas, scaled
-  // up 3x with image-rendering:pixelated for a chunky retro look (think an
-  // NES victory-dance sprite, not a single static emoji). Same
+  // The corner mascot crew: a few hand-drawn pixel-art dudes on 32x40
+  // canvases, scaled up with image-rendering:pixelated for a chunky retro
+  // look (think an NES victory-dance sprite, not a static emoji). Same
   // total_return_usd >= 0 convention as every other green/red split on this
-  // page decides which animation set plays -- except for 5s after a click,
-  // when he tumbles over and cries regardless, then resumes whatever that
-  // convention says.
+  // page decides which animation set they all dance/droop to -- except any
+  // one of them individually for 5s after you click him, when he tumbles
+  // over and cries regardless, then resumes whatever that convention says.
+  // Each has his own palette (so they read as distinct friends, not clones)
+  // and his own frameOffset (so their dance poses aren't perfectly synced).
   const MASCOT_W = 32, MASCOT_H = 40;
-  const mascotCanvas = document.getElementById('mascotCanvas');
-  const mascotCtx = mascotCanvas.getContext('2d');
-  mascotCtx.imageSmoothingEnabled = false;
+  const MASCOT_PALETTES = [
+    { skin: '#f2c29a', hand: '#ffdcb8', hair: '#2b1d12', shirt: '#3ecf8e', shirtDark: '#2fa876', pants: '#1c2b57', shoe: '#3a3a3a' },
+    { skin: '#e0a978', hand: '#f2c6a0', hair: '#171310', shirt: '#e0a95a', shirtDark: '#b8873f', pants: '#3a2a1c', shoe: '#2a2a2a' },
+    { skin: '#f2c29a', hand: '#ffdcb8', hair: '#6b4530', shirt: '#7c8cff', shirtDark: '#5f6dd6', pants: '#2b1c3a', shoe: '#3a3a3a' },
+  ];
   let mascotMode = {{ ('dance' if summary.total_return_usd >= 0 else 'sad')|tojson }};
-  let mascotFallenAt = null;
+
+  const mascots = Array.from(document.querySelectorAll('#mascotGroup .mascot-canvas')).map((canvas, i) => {
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+    const mascot = { ctx, palette: MASCOT_PALETTES[i % MASCOT_PALETTES.length], frameOffset: i, fallenAt: null };
+    canvas.addEventListener('click', () => { mascot.fallenAt = Date.now(); });
+    return mascot;
+  });
 
   function px(ctx, x, y, w, h, color) {
     ctx.fillStyle = color;
@@ -550,11 +564,9 @@
   ];
   const DANCE_FRAME_MS = 160;
 
-  function drawDanceFrame(frameIndex) {
-    const ctx = mascotCtx;
+  function drawDanceFrame(ctx, frameIndex, palette) {
     ctx.clearRect(0, 0, MASCOT_W, MASCOT_H);
-    const skin = '#f2c29a', hand = '#ffdcb8', hair = '#2b1d12', shirt = '#3ecf8e',
-      shirtDark = '#2fa876', pants = '#1c2b57', shoe = '#3a3a3a';
+    const { skin, hand, hair, shirt, shirtDark, pants, shoe } = palette;
     const pose = DANCE_POSES[frameIndex % DANCE_POSES.length];
     ctx.save();
     ctx.translate(pose.lean, 0);
@@ -578,8 +590,7 @@
   // arms hanging straight at the sides, nothing bouncy about it.
   const SAD_FRAME_MS = 900;
 
-  function drawSadFrame(frameIndex) {
-    const ctx = mascotCtx;
+  function drawSadFrame(ctx, frameIndex) {
     ctx.clearRect(0, 0, MASCOT_W, MASCOT_H);
     const skin = '#c9c9c9', hand = '#d8d8d8', hair = '#333333', shirt = '#4a4a4a',
       shirtDark = '#3a3a3a', pants = '#2e2e2e', shoe = '#3a3a3a';
@@ -607,11 +618,9 @@
   const FALL_CRY_FRAME_MS = 350;
   const FALL_TOTAL_MS = 5000;
 
-  function drawTumbleFrame(frameIndex) {
-    const ctx = mascotCtx;
+  function drawTumbleFrame(ctx, frameIndex, palette) {
     ctx.clearRect(0, 0, MASCOT_W, MASCOT_H);
-    const skin = '#f2c29a', hand = '#ffdcb8', hair = '#2b1d12', shirt = '#3ecf8e',
-      pants = '#1c2b57', shoe = '#3a3a3a';
+    const { skin, hair, shirt, pants, shoe } = palette;
     ctx.save();
     if (frameIndex === 0) {
       // mid-tumble: tipping sideways, arms flailing up
@@ -649,11 +658,10 @@
     ctx.restore();
   }
 
-  function drawCryFrame(frameIndex) {
-    const ctx = mascotCtx;
+  function drawCryFrame(ctx, frameIndex, palette) {
     ctx.clearRect(0, 0, MASCOT_W, MASCOT_H);
-    const skin = '#f2c29a', hand = '#ffdcb8', hair = '#2b1d12', shirt = '#3ecf8e',
-      pants = '#1c2b57', shoe = '#3a3a3a', tear = '#5aa7ff';
+    const { skin, hand, hair, shirt, pants, shoe } = palette;
+    const tear = '#5aa7ff';
     // sitting on the ground, legs out flat, head down, tears flying
     px(ctx, 10, 8, 12, 3, hair);
     px(ctx, 11, 11, 10, 8, skin);
@@ -672,11 +680,11 @@
     px(ctx, 20, 18 + drop * 3, 1, 2, tear);
   }
 
-  function drawFallenFrame(elapsed) {
+  function drawFallenFrame(ctx, elapsed, palette) {
     if (elapsed < FALL_TUMBLE_MS) {
-      drawTumbleFrame(Math.floor(elapsed / (FALL_TUMBLE_MS / 2)) % 2);
+      drawTumbleFrame(ctx, Math.floor(elapsed / (FALL_TUMBLE_MS / 2)) % 2, palette);
     } else {
-      drawCryFrame(Math.floor((elapsed - FALL_TUMBLE_MS) / FALL_CRY_FRAME_MS));
+      drawCryFrame(ctx, Math.floor((elapsed - FALL_TUMBLE_MS) / FALL_CRY_FRAME_MS), palette);
     }
   }
 
@@ -684,32 +692,30 @@
   // counter, so switching mascotMode mid-animation (a refresh tick flips
   // green<->red) never needs its own timer reset -- the right frame for
   // whichever mode is active "just falls out" of Date.now().
-  function animateMascot() {
-    if (mascotFallenAt !== null) {
-      const elapsed = Date.now() - mascotFallenAt;
-      if (elapsed < FALL_TOTAL_MS) {
-        drawFallenFrame(elapsed);
-        requestAnimationFrame(animateMascot);
-        return;
+  function animateMascots() {
+    const now = Date.now();
+    for (const m of mascots) {
+      if (m.fallenAt !== null) {
+        const elapsed = now - m.fallenAt;
+        if (elapsed < FALL_TOTAL_MS) {
+          drawFallenFrame(m.ctx, elapsed, m.palette);
+          continue;
+        }
+        m.fallenAt = null;
       }
-      mascotFallenAt = null;
+      if (mascotMode === 'dance') {
+        drawDanceFrame(m.ctx, Math.floor(now / DANCE_FRAME_MS) + m.frameOffset, m.palette);
+      } else {
+        drawSadFrame(m.ctx, Math.floor(now / SAD_FRAME_MS) + m.frameOffset);
+      }
     }
-    if (mascotMode === 'dance') {
-      drawDanceFrame(Math.floor(Date.now() / DANCE_FRAME_MS));
-    } else {
-      drawSadFrame(Math.floor(Date.now() / SAD_FRAME_MS));
-    }
-    requestAnimationFrame(animateMascot);
+    requestAnimationFrame(animateMascots);
   }
-  requestAnimationFrame(animateMascot);
-
-  mascotCanvas.addEventListener('click', () => {
-    mascotFallenAt = Date.now();
-  });
+  requestAnimationFrame(animateMascots);
 
   function renderMascot(s) {
     mascotMode = s.total_return_usd >= 0 ? 'dance' : 'sad';
-    document.getElementById('mascot').dataset.mode = mascotMode;
+    document.getElementById('mascotGroup').dataset.mode = mascotMode;
   }
 
   function renderStatus(s) {
