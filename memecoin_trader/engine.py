@@ -7,7 +7,7 @@ import sqlite3
 import time
 from decimal import Decimal
 
-from memecoin_trader.analysis.entry_strategy import EntryContext, evaluate_entry
+from memecoin_trader.analysis.entry_strategy import EntryContext, effective_score, evaluate_entry
 from memecoin_trader.analysis.exit_strategy import evaluate_exit
 from memecoin_trader.config import DB_PATH, MODEL_PATH, TWITTER_SESSION_PATH, Settings
 from memecoin_trader.execution.base import Executor
@@ -18,7 +18,7 @@ from memecoin_trader.ml.features import extract_features
 from memecoin_trader.ml.model import TradeQualityModel
 from memecoin_trader.portfolio.db import get_connection, init_db
 from memecoin_trader.portfolio.ledger import InsufficientCashError, Ledger
-from memecoin_trader.signals.base import SignalSource
+from memecoin_trader.signals.base import SignalSource, SocialSignal
 from memecoin_trader.signals.mock_source import MockTwitterSource
 from memecoin_trader.signals.twitter_source import TwitterAPISource
 
@@ -137,6 +137,12 @@ class TradingEngine:
         self._last_signal_poll = 0.0
         self._last_position_check = 0.0
         self._last_equity_snapshot = 0.0
+        self._last_ml_check = 0.0
+        self._last_ml_train_dataset_size = 0
+        # token_address -> {source_name: last_seen_unix_time}, used to spot
+        # a token independently flagged by multiple sources within
+        # entry.corroboration_window_minutes -- see effective_score().
+        self._recent_signal_sources: dict[str, dict[str, float]] = {}
 
     def run_forever(self) -> None:
         logger.info(
@@ -171,6 +177,13 @@ class TradingEngine:
             self._record_equity()
             self._last_equity_snapshot = now
 
+        if (
+            self.settings.entry.ml.enabled
+            and now - self._last_ml_check >= self.settings.entry.ml.retrain_check_interval_minutes * 60
+        ):
+            self._maybe_retrain_ml_model()
+            self._last_ml_check = now
+
     def _poll_signals(self) -> None:
         try:
             signals = self.signal_source.poll()
@@ -183,11 +196,14 @@ class TradingEngine:
             if market is not None:
                 self._last_prices[signal.token_address] = market.price_usd
 
+            corroborating_sources = self._corroborating_source_count(signal)
+            score = effective_score(signal, corroborating_sources, self.settings.entry)
+
             # Only spend a rug-check call on candidates that already clear the
             # cheap, local hype-score bar — no point querying a third-party
             # API for a signal we'd reject anyway.
             rug_report = None
-            if market is not None and signal.score >= self.settings.entry.mention_score_threshold:
+            if market is not None and score >= self.settings.entry.mention_score_threshold:
                 rug_report = self.rug_client.get_risk_report(signal.token_address)
                 if rug_report is None and self.settings.entry.rug_check.enabled:
                     logger.warning(
@@ -218,7 +234,13 @@ class TradingEngine:
                 ),
             )
             decision = evaluate_entry(
-                signal, market, ctx, self.settings.entry, rug_report=rug_report, ml_confidence=ml_confidence
+                signal,
+                market,
+                ctx,
+                self.settings.entry,
+                rug_report=rug_report,
+                ml_confidence=ml_confidence,
+                corroborating_sources=corroborating_sources,
             )
             self.ledger.record_signal(signal, acted_on=decision is not None)
 
@@ -357,6 +379,47 @@ class TradingEngine:
             positions_value += position.quantity * price
         self.ledger.record_equity_snapshot(positions_value)
 
+    def _corroborating_source_count(self, signal: SocialSignal) -> int:
+        now = time.time()
+        window_seconds = self.settings.entry.corroboration_window_minutes * 60
+        per_token = self._recent_signal_sources.setdefault(signal.token_address, {})
+        per_token[signal.source] = now
+        for source in [s for s, seen_at in per_token.items() if now - seen_at > window_seconds]:
+            del per_token[source]
+        return len(per_token)
+
+    def _maybe_retrain_ml_model(self) -> None:
+        """Automatically (re)trains the ML trade-quality model against the
+        bot's own closed-trade history once there's enough of it, so ML
+        actually turns on over time instead of requiring someone to
+        remember to run `memecoin-trader train` by hand."""
+        dataset = self.ledger.get_training_dataset()
+        min_required = self.settings.entry.ml.min_training_trades
+        if len(dataset) < min_required or len(dataset) == self._last_ml_train_dataset_size:
+            return
+
+        features, labels = zip(*dataset)
+        if len(set(labels)) < 2:
+            return  # need at least one win and one loss to train a classifier
+
+        model = TradeQualityModel()
+        try:
+            stats = model.train(list(features), list(labels))
+        except RuntimeError:
+            logger.warning("ML auto-retrain skipped: scikit-learn not installed")
+            return
+        except ValueError:
+            return
+
+        model.save(MODEL_PATH)
+        self.ml_model = model
+        self._last_ml_train_dataset_size = len(dataset)
+        logger.info(
+            "auto-trained ML trade-quality model: %d closed trades, %.0f%% holdout accuracy",
+            stats["n_samples"],
+            stats["accuracy"] * 100,
+        )
+
 
 def create_engine(settings: Settings) -> TradingEngine:
     conn = get_connection(DB_PATH)
@@ -368,6 +431,12 @@ def create_engine(settings: Settings) -> TradingEngine:
 
     ml_model = TradeQualityModel.load(MODEL_PATH) if settings.entry.ml.enabled else None
     if settings.entry.ml.enabled and ml_model is None:
-        logger.info("ML gate is enabled but no trained model found at %s — gate is a no-op until `memecoin-trader train` runs", MODEL_PATH)
+        logger.info(
+            "ML gate is enabled but no trained model found at %s yet — it's a no-op until then; "
+            "the engine will auto-train one once %d closed trades exist (or run `memecoin-trader "
+            "train` manually now if there's already history from before this was enabled)",
+            MODEL_PATH,
+            settings.entry.ml.min_training_trades,
+        )
 
     return TradingEngine(settings, conn, market_client, signal_source, executor, rug_client, ml_model)

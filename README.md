@@ -33,7 +33,7 @@ market data                                                            ▲
 | Birdeye trending signal | **Enabled but inert until credentialed** — free API key, self-serve, no approval wait. Third-party momentum ranking, runs alongside everything else. See [Birdeye](#birdeye-trending-tokens-free-api-key-no-approval-wait) |
 | pump.fun launch signal | **Off by default** — free, no-key, real-time on-chain launch feed; highest rug-risk category, so opt-in only. See [pump.fun launch feed](#pumpfun-launch-feed-free-no-key--off-by-default-use-with-caution) |
 | Rug-pull screening | **Real** — [RugCheck.xyz](https://rugcheck.xyz) checked before every buy (mint/freeze authority, LP lock, holder risk), plus liquidity/FDV and price-spike heuristics from DexScreener data |
-| Trade-quality ML model | **Off by default** — trains on the bot's own closed-trade history once there's enough of it; see [Machine learning](#machine-learning) |
+| Trade-quality ML model | **On by default, but a no-op until trained** — auto-trains itself on the bot's own closed-trade history once there's enough of it; see [Machine learning](#machine-learning) |
 | Money | **Simulated** ("paper" mode) by default. A real Solana execution path exists (`--live`) but is off by default and hard-gated — see [Going live](#going-live) |
 
 ### Why the Twitter signal is simulated
@@ -274,6 +274,12 @@ extra screening before a buy, all configurable under `entry:` in
 - **Price-spike cap** (`entry.max_price_change_5m_pct`): skips tokens that
   already spiked hard in the last 5 minutes, so the bot isn't chasing the
   top of a pump.
+- **Buy/sell pressure** (`entry.min_buy_sell_ratio`, default 1.0): skips
+  tokens where DexScreener's 24h sell count already exceeds the buy count by
+  more than this ratio allows — more selling than buying is a distribution/
+  dumping pattern, not accumulation. This data was already being fetched and
+  fed to the ML model as a feature; it just wasn't a rule-based filter until
+  now.
 - **Sudden liquidity-drop exit** (`exit.sudden_liquidity_drop_pct`, default
   35%): for positions already held, an emergency exit fires if liquidity
   drops sharply between two consecutive checks — catching an in-progress rug
@@ -295,38 +301,50 @@ this was built in (its outbound network is restricted) — the parsing is
 deliberately defensive, but watch the logs the first few times it runs for
 real and tell me if anything about the response shape looks off.
 
+## Multi-source corroboration
+
+With multiple independent hype/discovery sources now running at once
+(Twitter/X, Reddit, Birdeye, the mock feed, optionally pump.fun), the bot
+tracks which sources have flagged each token recently
+(`entry.corroboration_window_minutes`, default 30). If 2 or more distinct
+sources independently flag the same token within that window, its score
+gets a bonus (`entry.corroboration_bonus_score`, default +15) before it's
+checked against `entry.mention_score_threshold` — a token two unrelated
+research angles agree on is stronger evidence than either alone, so a
+signal too weak by itself can still clear the bar once corroborated. A
+single strong signal from one source still gets through on its own merits;
+this only ever helps a borderline case, never blocks anything.
+
 ## Machine learning
 
 `memecoin_trader/ml/` adds a small logistic-regression model that predicts,
 from a token's entry-time features (hype score, liquidity, volume, price
-momentum, RugCheck score, etc.), the probability a trade will end up
-profitable. Since a rug pull always shows up as a large loss, a model that
-predicts plain profitability is implicitly learning to avoid rug-like
-patterns too — there's no separate "is this a scam" label needed.
+momentum, buy/sell ratio, RugCheck score, etc.), the probability a trade
+will end up profitable. Since a rug pull always shows up as a large loss, a
+model that predicts plain profitability is implicitly learning to avoid
+rug-like patterns too — there's no separate "is this a scam" label needed.
+scikit-learn/joblib are regular dependencies now (in `requirements.txt`),
+so nothing extra needs installing for this.
 
-**It starts out as a no-op.** With zero trade history there's nothing to
-learn from, so `entry.ml.enabled` defaults to `false` in `config.yaml`, and
-even when enabled, the engine only uses it if a trained model file actually
-exists — otherwise it's silently skipped. Every buy the bot makes
-automatically saves its entry-time feature vector, so training data
-accumulates on its own just from running the bot normally.
+**It trains itself automatically.** `entry.ml.enabled: true` by default, but
+it's a no-op until there's a model — every buy the bot makes automatically
+saves its entry-time feature vector, and once
+`entry.ml.min_training_trades` (default 30) closed, feature-tagged trades
+exist, the engine trains a logistic regression model on its own, saves it
+to `data/model.joblib`, and starts using it immediately — no CLI command,
+no restart needed. It keeps re-checking every
+`entry.ml.retrain_check_interval_minutes` (default 60) and only actually
+retrains when there's new closed-trade history since the last run, so it
+stays current as the bot accumulates more experience. Once live, the
+model's predicted confidence (`entry.ml.min_confidence`, default 0.60) is
+an additional gate on top of every other filter above, not a replacement
+for any of them.
 
-Once you've let it run long enough to close a decent number of trades:
-
+You can still train on demand instead of waiting for the next automatic
+check (e.g. right after crossing the minimum trade count):
 ```powershell
-pip install -r requirements-ml.txt   # scikit-learn + joblib, not needed otherwise
 python -m memecoin_trader.cli train
 ```
-
-This reads every closed, feature-tagged position, labels it profitable (1)
-or not (0) by its total realized P&L, trains a logistic regression model,
-and saves it to `data/model.joblib`. It refuses to train with fewer than
-`entry.ml.min_training_trades` closed trades (default 30) — there's no
-point fitting a model to noise. Once you have a model you trust, set
-`entry.ml.enabled: true`; the model's predicted confidence
-(`entry.ml.min_confidence`) then becomes an additional gate on top of every
-other filter above, not a replacement for any of them. Re-run `train`
-periodically as more trade history accumulates.
 
 ## Setup (Windows PowerShell)
 
@@ -623,7 +641,7 @@ strategy's position sizing.
 ## Running the tests
 
 ```powershell
-pip install -r requirements-ml.txt   # includes requirements.txt; needed for the ML model tests
+pip install -r requirements.txt
 pytest
 ```
 

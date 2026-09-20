@@ -29,18 +29,22 @@ entry:
   max_trade_usd: 60.0
   min_liquidity_to_fdv_pct: 3.0      # was 2.0 — raised, tighter floor against thin-liquidity manipulation/rugs
   max_price_change_5m_pct: 180.0
+  min_buy_sell_ratio: 1.0            # new: skip tokens with more sells than buys in the last 24h (distribution/dumping, not accumulation)
+  corroboration_bonus_score: 15.0    # new: score bonus when 2+ distinct signal sources flag the same token within the window below
+  corroboration_window_minutes: 30   # new: how recent another source's signal on the same token has to be to count as corroboration
 
   rug_check:
     enabled: true                    # query RugCheck.xyz before buying
     fail_closed: true                # if the check errors out or the token isn't indexed yet, skip the trade rather than assume it's safe
     max_danger_flags: 0              # any RugCheck "danger"-level finding blocks the trade by default
-    max_warning_flags: 4             # new: too many smaller warn-level findings stacked up blocks the trade too, even with zero danger flags
+    max_warning_flags: 4             # too many smaller warn-level findings stacked up blocks the trade too, even with zero danger flags
     min_lp_locked_pct: 65.0          # was 50.0 — raised, requires more LP actually locked/burned before trusting a pool
 
   ml:
-    enabled: false                   # off until a model has actually been trained (see `memecoin-trader train`)
-    min_confidence: 0.55             # predicted P(profitable) required, on top of all rule-based filters above
-    min_training_trades: 30          # `train` refuses to produce a model with fewer closed trades than this
+    enabled: true                    # was false — the engine now auto-trains a model once enough closed trades exist (see min_training_trades); a no-op gate until then
+    min_confidence: 0.60             # was 0.55 — raised slightly, a bit more cautious once the model is actually live
+    min_training_trades: 30          # won't (auto-)train with fewer closed trades than this
+    retrain_check_interval_minutes: 60  # new: how often the engine checks whether it's worth retraining on newly-closed trades
 
 exit:
   stop_loss_pct: 0.30                # was 0.25 — loosened, gives trades a bit more room before cutting losses

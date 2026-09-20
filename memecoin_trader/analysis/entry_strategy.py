@@ -24,6 +24,17 @@ class EntryContext:
     token_on_cooldown: bool
 
 
+def effective_score(signal: SocialSignal, corroborating_sources: int, config: EntryConfig) -> float:
+    """A token independently flagged by 2+ distinct signal sources within
+    entry.corroboration_window_minutes is stronger evidence than any one
+    source's score alone, so it gets a score bonus -- this is what lets a
+    signal too weak on its own (e.g. a middling Reddit mention) still clear
+    the bar when it's corroborated by, say, Birdeye's trending list too."""
+    if corroborating_sources >= 2:
+        return min(100.0, signal.score + config.corroboration_bonus_score)
+    return signal.score
+
+
 def evaluate_entry(
     signal: SocialSignal,
     market: PairInfo | None,
@@ -31,13 +42,14 @@ def evaluate_entry(
     config: EntryConfig,
     rug_report: RugRiskReport | None = None,
     ml_confidence: float | None = None,
+    corroborating_sources: int = 1,
 ) -> EntryDecision | None:
     """Returns an EntryDecision if we should buy, otherwise None.
 
     Every rejection reason is meaningful for tuning the strategy later, so
     keep them specific rather than collapsing to a bare False.
     """
-    if signal.score < config.mention_score_threshold:
+    if effective_score(signal, corroborating_sources, config) < config.mention_score_threshold:
         return None
     if ctx.already_holds_token:
         return None
@@ -61,6 +73,10 @@ def evaluate_entry(
 
     if market.price_change_5m_pct > config.max_price_change_5m_pct:
         return None  # already pumped hard in the last 5 minutes — chasing the top
+
+    buy_sell_ratio = market.buys_24h / (market.sells_24h + 1)
+    if buy_sell_ratio < config.min_buy_sell_ratio:
+        return None  # more selling than buying in the last 24h — distribution/dumping, not accumulation
 
     if market.fdv_usd is not None and market.fdv_usd > 0:
         liquidity_to_fdv_pct = float(market.liquidity_usd / market.fdv_usd * 100)

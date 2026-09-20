@@ -1,7 +1,7 @@
 from dataclasses import replace
 from decimal import Decimal
 
-from memecoin_trader.analysis.entry_strategy import EntryContext, evaluate_entry
+from memecoin_trader.analysis.entry_strategy import EntryContext, effective_score, evaluate_entry
 from memecoin_trader.config import EntryConfig, MlConfig, RugCheckConfig
 from tests.conftest import make_pair, make_rug_report, make_signal
 
@@ -17,10 +17,13 @@ CONFIG = EntryConfig(
     max_trade_usd=40.0,
     min_liquidity_to_fdv_pct=0.0,
     max_price_change_5m_pct=100000.0,
+    min_buy_sell_ratio=0.0,
+    corroboration_bonus_score=15.0,
+    corroboration_window_minutes=30.0,
     rug_check=RugCheckConfig(
         enabled=False, fail_closed=True, max_danger_flags=0, max_warning_flags=4, min_lp_locked_pct=50.0
     ),
-    ml=MlConfig(enabled=False, min_confidence=0.55, min_training_trades=30),
+    ml=MlConfig(enabled=False, min_confidence=0.55, min_training_trades=30, retrain_check_interval_minutes=60),
 )
 
 DEFAULT_CTX = EntryContext(
@@ -255,3 +258,40 @@ def test_ml_gate_is_a_noop_without_a_trained_model():
     signal = make_signal(score=80)
     market = make_pair()
     assert evaluate_entry(signal, market, DEFAULT_CTX, config, ml_confidence=None) is not None
+
+
+def test_rejects_more_sells_than_buys():
+    config = replace(CONFIG, min_buy_sell_ratio=1.0)
+    signal = make_signal(score=80)
+    market = make_pair(buys_24h=5, sells_24h=20)  # heavy sell pressure
+    assert evaluate_entry(signal, market, DEFAULT_CTX, config) is None
+
+
+def test_allows_healthy_buy_sell_ratio():
+    config = replace(CONFIG, min_buy_sell_ratio=1.0)
+    signal = make_signal(score=80)
+    market = make_pair(buys_24h=50, sells_24h=10)
+    assert evaluate_entry(signal, market, DEFAULT_CTX, config) is not None
+
+
+def test_effective_score_unboosted_with_fewer_than_two_sources():
+    signal = make_signal(score=40)
+    assert effective_score(signal, corroborating_sources=1, config=CONFIG) == 40
+    assert effective_score(signal, corroborating_sources=0, config=CONFIG) == 40
+
+
+def test_effective_score_boosted_with_two_or_more_sources():
+    signal = make_signal(score=40)
+    assert effective_score(signal, corroborating_sources=2, config=CONFIG) == 55  # +15 bonus
+
+
+def test_effective_score_boost_caps_at_100():
+    signal = make_signal(score=95)
+    assert effective_score(signal, corroborating_sources=2, config=CONFIG) == 100
+
+
+def test_corroboration_lets_a_below_threshold_signal_through():
+    signal = make_signal(score=45)  # below CONFIG.mention_score_threshold (55) alone
+    market = make_pair()
+    assert evaluate_entry(signal, market, DEFAULT_CTX, CONFIG, corroborating_sources=1) is None
+    assert evaluate_entry(signal, market, DEFAULT_CTX, CONFIG, corroborating_sources=2) is not None

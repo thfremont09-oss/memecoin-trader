@@ -43,6 +43,7 @@ class MlConfig:
     enabled: bool
     min_confidence: float
     min_training_trades: int
+    retrain_check_interval_minutes: float
 
 
 @dataclass(frozen=True)
@@ -58,6 +59,9 @@ class EntryConfig:
     max_trade_usd: float
     min_liquidity_to_fdv_pct: float
     max_price_change_5m_pct: float
+    min_buy_sell_ratio: float
+    corroboration_bonus_score: float
+    corroboration_window_minutes: float
     rug_check: RugCheckConfig
     ml: MlConfig
 

@@ -1,6 +1,7 @@
 """End-to-end test of one full buy-then-exit cycle through the real engine
 wiring (ledger + strategies + paper executor), with only the two outside
 inputs (Twitter signal, DexScreener market data) replaced by fakes."""
+from dataclasses import replace
 from decimal import Decimal
 
 from memecoin_trader.config import load_settings
@@ -249,3 +250,76 @@ def test_tick_still_polls_and_buys_when_online(conn):
     engine.tick()
 
     assert len(engine.ledger.get_open_positions()) == 1
+
+
+def test_corroborating_source_count_tracks_distinct_recent_sources(conn):
+    engine, signal_source, market = build_engine(conn)
+    token = "TOKENAAAA111111111111111111111111111111111"
+
+    assert engine._corroborating_source_count(make_signal(token_address=token, source="reddit")) == 1
+    # a different source flagging the same token recently -> now corroborated
+    assert engine._corroborating_source_count(make_signal(token_address=token, source="birdeye_trending")) == 2
+    # the same source again is not a *new* corroborating source
+    assert engine._corroborating_source_count(make_signal(token_address=token, source="reddit")) == 2
+
+
+def test_corroborating_source_count_expires_outside_the_window(conn):
+    engine, signal_source, market = build_engine(conn)
+    token = "TOKENBBBB111111111111111111111111111111111"
+
+    engine._corroborating_source_count(make_signal(token_address=token, source="reddit"))
+    # simulate that mention having happened outside the corroboration window
+    window_seconds = engine.settings.entry.corroboration_window_minutes * 60
+    engine._recent_signal_sources[token]["reddit"] -= window_seconds + 1
+
+    assert engine._corroborating_source_count(make_signal(token_address=token, source="birdeye_trending")) == 1
+
+
+def test_engine_auto_trains_ml_model_once_enough_closed_trades_exist(conn, tmp_path, monkeypatch):
+    # _maybe_retrain_ml_model saves to the module-level MODEL_PATH constant --
+    # redirect it so this test writes to a throwaway file, never the real
+    # data/model.joblib.
+    monkeypatch.setattr("memecoin_trader.engine.MODEL_PATH", tmp_path / "model.joblib")
+
+    engine, signal_source, market = build_engine(conn)
+    engine.settings = replace(
+        engine.settings,
+        entry=replace(
+            engine.settings.entry,
+            ml=replace(engine.settings.entry.ml, enabled=True, min_training_trades=2),
+        ),
+    )
+
+    losing_token = "TOKENCCCC111111111111111111111111111111111"
+    winning_token = "TOKENDDDD111111111111111111111111111111111"
+
+    market.pairs[losing_token] = make_pair(token_address=losing_token, price_usd="1.0")
+    signal_source.queue = [make_signal(token_address=losing_token, score=90)]
+    engine._poll_signals()
+    market.pairs[losing_token] = make_pair(token_address=losing_token, price_usd="0.5")  # stop-loss territory
+    engine._manage_open_positions()
+
+    market.pairs[winning_token] = make_pair(token_address=winning_token, price_usd="1.0")
+    signal_source.queue = [make_signal(token_address=winning_token, score=90)]
+    engine._poll_signals()
+    market.pairs[winning_token] = make_pair(token_address=winning_token, price_usd="3.0")  # up big
+    engine.liquidate_position(winning_token)
+
+    assert engine.ml_model is None  # nothing trained yet
+    engine._maybe_retrain_ml_model()
+
+    assert engine.ml_model is not None
+    assert engine.ml_model.is_trained
+
+
+def test_ml_retrain_is_a_noop_without_new_closed_trades(conn):
+    engine, signal_source, market = build_engine(conn)
+    engine.settings = replace(
+        engine.settings,
+        entry=replace(
+            engine.settings.entry,
+            ml=replace(engine.settings.entry.ml, enabled=True, min_training_trades=100),
+        ),
+    )
+    engine._maybe_retrain_ml_model()
+    assert engine.ml_model is None  # nowhere near min_training_trades

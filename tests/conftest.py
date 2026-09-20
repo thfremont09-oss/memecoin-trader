@@ -34,6 +34,8 @@ def make_pair(
     symbol: str = "MEME",
     fdv_usd: str | None = "1000000",
     price_change_5m_pct: float = 0.0,
+    buys_24h: int = 10,
+    sells_24h: int = 5,
 ) -> PairInfo:
     created_at = datetime.now(timezone.utc) - timedelta(minutes=age_minutes)
     return PairInfo(
@@ -49,8 +51,8 @@ def make_pair(
         price_change_5m_pct=price_change_5m_pct,
         price_change_1h_pct=0.0,
         price_change_24h_pct=0.0,
-        buys_24h=10,
-        sells_24h=5,
+        buys_24h=buys_24h,
+        sells_24h=sells_24h,
         pair_created_at=created_at,
         fdv_usd=Decimal(fdv_usd) if fdv_usd is not None else None,
         url="https://dexscreener.com/solana/pair111",
@@ -79,12 +81,13 @@ def make_signal(
     token_address: str = "TOKEN1111111111111111111111111111111111111",
     score: float = 80.0,
     symbol: str = "MEME",
+    source: str = "twitter_mock",
 ) -> SocialSignal:
     return SocialSignal(
         token_address=token_address,
         symbol=symbol,
         chain_id="solana",
-        source="twitter_mock",
+        source=source,
         score=score,
         mention_count=10,
         excerpt="[SIMULATED] test excerpt",

@@ -33,12 +33,6 @@ if (-not (Test-Path $venvPython)) {
 Write-Host "Updating Python dependencies..."
 & $venvPython -m pip install -q -r requirements.txt
 
-& $venvPython -c "import sklearn" 2>$null
-if ($LASTEXITCODE -eq 0) {
-    Write-Host "Updating ML dependencies too (scikit-learn was already installed)..."
-    & $venvPython -m pip install -q -r requirements-ml.txt
-}
-
 function Stop-OrphanedBotProcesses {
     # Stop-ScheduledTask only stops the task's own wrapper process (the
     # powershell.exe running run_engine_forever.ps1/run_dashboard_forever.ps1)

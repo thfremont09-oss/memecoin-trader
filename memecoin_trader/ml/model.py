@@ -4,13 +4,15 @@ from its entry-time features.
 Because a rug pull is always a large loss, a model trained to predict plain
 profitability is implicitly learning to avoid rug-like entry patterns too —
 there's no separate "is this a rug" label needed. It starts out useless:
-with zero trade history there's nothing to learn from, so `ml.enabled` in
-config.yaml should stay off (or the engine will just skip the ML gate, since
-it treats "no model on disk" as "no opinion") until `memecoin-trader train`
-has run against a meaningful number of the bot's own closed trades.
+with zero trade history there's nothing to learn from, so the engine treats
+"no model on disk" as "no opinion" (the ML gate is a no-op) until it's
+auto-trained a model against a meaningful number of the bot's own closed
+trades (see TradingEngine._maybe_retrain_ml_model), or `memecoin-trader
+train` is run manually.
 
-scikit-learn/joblib are optional dependencies (requirements-ml.txt) and are
-only imported when actually training or loading a model.
+scikit-learn/joblib are regular dependencies (requirements.txt) but are
+only imported here when actually training or loading a model, since most
+of the bot never touches this module.
 """
 from __future__ import annotations
 
@@ -47,7 +49,7 @@ class TradeQualityModel:
             from sklearn.model_selection import train_test_split
         except ImportError as exc:
             raise RuntimeError(
-                "training needs scikit-learn: pip install -r requirements-ml.txt"
+                "training needs scikit-learn: pip install -r requirements.txt"
             ) from exc
 
         if len(feature_rows) != len(labels):

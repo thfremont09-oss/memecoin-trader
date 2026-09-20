@@ -1,4 +1,0 @@
-# Only needed if you use `memecoin-trader train` or set entry.ml.enabled: true.
--r requirements.txt
-scikit-learn>=1.4
-joblib>=1.3
