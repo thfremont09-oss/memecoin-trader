@@ -82,6 +82,15 @@ def cmd_status(args: argparse.Namespace) -> int:
                 f"  {t['executed_at']}  {t['side']:<4} {t['symbol']:<10} "
                 f"${t['amount_usd']:.2f} @ ${t['price_usd']:.6f}  [{t['reason']}]{pnl}"
             )
+
+    if summary["performance_by_source"]:
+        print("\nPerformance by signal source (closed trades only):")
+        for row in summary["performance_by_source"]:
+            print(
+                f"  {row['source']:<20} trades={row['closed_trades']:<5} "
+                f"win_rate={row['win_rate_pct']:>5.1f}%  "
+                f"total_pnl=${row['total_pnl_usd']:+.2f}  avg_pnl=${row['avg_pnl_usd']:+.2f}"
+            )
     return 0
 
 

@@ -189,6 +189,26 @@
     {% endif %}
   </div>
 
+  <div class="panel">
+    <h2>Performance by signal source</h2>
+    {% if summary.performance_by_source %}
+    <table>
+      <tr><th>Source</th><th>Closed trades</th><th>Win rate</th><th>Total P&amp;L</th><th>Avg P&amp;L</th></tr>
+      {% for row in summary.performance_by_source %}
+      <tr>
+        <td>{{ row.source }}</td>
+        <td>{{ row.closed_trades }}</td>
+        <td>{{ "%.0f"|format(row.win_rate_pct) }}%</td>
+        <td class="{{ 'positive' if row.total_pnl_usd >= 0 else 'negative' }}">{{ "%+.2f"|format(row.total_pnl_usd) }}</td>
+        <td class="{{ 'positive' if row.avg_pnl_usd >= 0 else 'negative' }}">{{ "%+.2f"|format(row.avg_pnl_usd) }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+    {% else %}
+    <div class="empty">No closed trades yet — nothing to compare sources on.</div>
+    {% endif %}
+  </div>
+
 <script>
   const equityCurve = {{ summary.equity_curve|tojson }};
   const startingBalance = {{ summary.starting_balance_usd }};

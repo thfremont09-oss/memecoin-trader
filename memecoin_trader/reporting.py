@@ -75,4 +75,5 @@ def build_summary(ledger: Ledger) -> dict:
         "open_positions": position_rows,
         "recent_trades": recent_trades,
         "equity_curve": ledger.get_equity_curve(limit=1000),
+        "performance_by_source": ledger.get_performance_by_source(),
     }

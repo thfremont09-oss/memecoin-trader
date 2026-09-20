@@ -427,3 +427,40 @@ class Ledger:
             label = 1 if row["total_pnl"] > 0 else 0
             dataset.append((features, label))
         return dataset
+
+    def get_performance_by_source(self) -> list[dict]:
+        """Realized P&L, win rate, and trade count per signal source (e.g.
+        twitter_scraper, reddit, birdeye_trending), for every *closed*
+        position -- the only way to actually tell which sources are worth
+        keeping rather than guessing. Sources with zero closed trades don't
+        appear; there's nothing to report yet."""
+        rows = self._conn.execute(
+            """
+            SELECT p.signal_source AS source,
+                   COUNT(*) AS closed_trades,
+                   SUM(CASE WHEN t.total_pnl > 0 THEN 1 ELSE 0 END) AS wins,
+                   SUM(t.total_pnl) AS total_pnl_usd
+            FROM (
+                SELECT position_id,
+                       COALESCE(SUM(CASE WHEN side = 'sell' THEN CAST(realized_pnl_usd AS REAL) ELSE 0 END), 0)
+                           AS total_pnl
+                FROM trades
+                GROUP BY position_id
+            ) t
+            JOIN positions p ON p.id = t.position_id
+            WHERE p.status = 'closed'
+            GROUP BY p.signal_source
+            ORDER BY total_pnl_usd DESC
+            """
+        ).fetchall()
+        return [
+            {
+                "source": row["source"] or "unknown",
+                "closed_trades": row["closed_trades"],
+                "wins": row["wins"],
+                "win_rate_pct": (row["wins"] / row["closed_trades"] * 100) if row["closed_trades"] else 0.0,
+                "total_pnl_usd": row["total_pnl_usd"],
+                "avg_pnl_usd": row["total_pnl_usd"] / row["closed_trades"] if row["closed_trades"] else 0.0,
+            }
+            for row in rows
+        ]

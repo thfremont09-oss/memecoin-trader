@@ -57,8 +57,8 @@ def test_open_position_rejects_insufficient_cash(ledger):
     assert ledger.get_cash_usd() == Decimal("100")  # untouched on failure
 
 
-def _open(ledger, quantity="20", amount="20", fee="0.2"):
-    signal = make_signal()
+def _open(ledger, quantity="20", amount="20", fee="0.2", source="twitter_mock", token_address=None):
+    signal = make_signal(source=source, token_address=token_address) if token_address else make_signal(source=source)
     fill = buy_fill(quantity=quantity, amount=amount, fee=fee)
     return ledger.open_position(
         token_address=signal.token_address,
@@ -200,3 +200,56 @@ def test_training_dataset_sums_pnl_across_partial_and_final_sells(ledger):
     assert len(dataset) == 1
     _, label = dataset[0]
     assert label == 0  # net loss across both sells despite the first being profitable
+
+
+def _close(ledger, position, price="2.0", quantity="20", amount="40", fee="0.4", reason="take_profit_partial"):
+    sell_fill = FillResult(
+        price_usd=Decimal(price), quantity=Decimal(quantity), amount_usd=Decimal(amount), fee_usd=Decimal(fee), tx_id=None
+    )
+    return ledger.apply_sell(
+        position=position, fraction=Decimal(1), fill=sell_fill, reason=reason, mark_take_profit_taken=True, mode="paper",
+    )
+
+
+def test_performance_by_source_excludes_open_positions(ledger):
+    _open(ledger, source="reddit", token_address="TOKENAAAA111111111111111111111111111111111")
+    assert ledger.get_performance_by_source() == []
+
+
+def test_performance_by_source_aggregates_wins_and_losses(ledger):
+    winner = _open(ledger, quantity="20", amount="20", fee="0.2", source="reddit", token_address="TOKENAAAA111111111111111111111111111111111")
+    _close(ledger, winner, price="2.0", quantity="20", amount="40", fee="0.4")  # profit
+
+    loser = _open(ledger, quantity="20", amount="20", fee="0.2", source="reddit", token_address="TOKENBBBB111111111111111111111111111111111")
+    _close(ledger, loser, price="0.1", quantity="20", amount="2", fee="0.02", reason="stop_loss")  # loss
+
+    other = _open(ledger, quantity="20", amount="20", fee="0.2", source="birdeye_trending", token_address="TOKENCCCC111111111111111111111111111111111")
+    _close(ledger, other, price="2.0", quantity="20", amount="40", fee="0.4")  # profit
+
+    rows = {row["source"]: row for row in ledger.get_performance_by_source()}
+
+    assert rows["reddit"]["closed_trades"] == 2
+    assert rows["reddit"]["wins"] == 1
+    assert rows["reddit"]["win_rate_pct"] == 50.0
+
+    assert rows["birdeye_trending"]["closed_trades"] == 1
+    assert rows["birdeye_trending"]["wins"] == 1
+    assert rows["birdeye_trending"]["win_rate_pct"] == 100.0
+    assert rows["birdeye_trending"]["total_pnl_usd"] > 0
+
+
+def test_performance_by_source_sums_partial_sells_into_one_position(ledger):
+    position = _open(ledger, quantity="20", amount="20", fee="0.2", source="pumpfun_launch")
+    partial_fill = FillResult(
+        price_usd=Decimal("2.0"), quantity=Decimal("10"), amount_usd=Decimal("20"), fee_usd=Decimal("0.2"), tx_id=None
+    )
+    ledger.apply_sell(
+        position=position, fraction=Decimal("0.5"), fill=partial_fill, reason="take_profit_partial",
+        mark_take_profit_taken=True, mode="paper",
+    )
+    remaining = ledger.get_open_positions()[0]
+    _close(ledger, remaining, price="2.0", quantity="10", amount="20", fee="0.2")
+
+    rows = ledger.get_performance_by_source()
+    assert len(rows) == 1
+    assert rows[0]["closed_trades"] == 1  # one position, even though it took two sells to close

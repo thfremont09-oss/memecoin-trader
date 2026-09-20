@@ -371,11 +371,15 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 # Start the trading loop (paper mode, $100 starting balance)
 python -m memecoin_trader.cli run
 
-# In another terminal: check balance / positions / P&L
+# In another terminal: check balance / positions / P&L, plus a
+# performance-by-signal-source breakdown (win rate, total/avg P&L per
+# source, once you have closed trades) -- the actual answer to "which
+# of Twitter/Reddit/Birdeye/etc. is worth keeping" instead of a guess
 python -m memecoin_trader.cli status
 
 # Or launch the web dashboard (auto-refreshing balance, equity chart,
-# open positions, trade history) at http://127.0.0.1:8787
+# open positions, trade history, same per-source breakdown) at
+# http://127.0.0.1:8787
 python -m memecoin_trader.cli dashboard
 
 # Sell one position right now
