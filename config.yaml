@@ -122,3 +122,34 @@ signals:
     enabled: true
     limit: 30                          # was 20 — larger candidate pool per poll
     mention_cooldown_minutes: 30       # don't re-signal the same token more often than this
+  bluesky:
+    # Bluesky's free, fully public searchPosts API -- no key, no approval
+    # process, ever (open reads are the AT Protocol's design intent). Runs
+    # alongside everything else. See README's "Bluesky" section.
+    enabled: true
+    query: "(pump.fun OR \"just launched\" OR $SOL) (moon OR pump OR gem OR 100x)"
+    max_results_per_poll: 25
+    mention_cooldown_minutes: 30       # don't re-signal the same token more often than this
+  farcaster:
+    # Farcaster casts via Neynar's free-tier search API
+    # (https://docs.neynar.com) -- self-serve NEYNAR_API_KEY, no approval
+    # wait. Community skews Ethereum/Base, so expect less than the other
+    # sources for this bot's Solana-only universe. See README's "Farcaster"
+    # section for how to get NEYNAR_API_KEY.
+    enabled: true
+    query: "(pump.fun OR \"just launched\" OR $SOL) (moon OR pump OR gem OR 100x)"
+    max_results_per_poll: 25
+    mention_cooldown_minutes: 30       # don't re-signal the same token more often than this
+  fourchan:
+    # 4chan's free, public, unauthenticated /biz/ catalog -- no key, no
+    # approval, ever. Deliberately wired as corroboration-only: capped low
+    # enough (see fourchan_source.py) that it can never trigger a buy by
+    # itself, even with the corroboration bonus, since /biz/ is anonymous
+    # and often deliberately deceptive. It only ever strengthens a signal a
+    # real source already flagged on the same token. See README's "4chan"
+    # section.
+    enabled: true
+    boards:
+      - biz
+    max_threads_per_poll: 40
+    mention_cooldown_minutes: 30       # don't re-signal the same token more often than this

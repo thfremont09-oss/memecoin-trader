@@ -99,6 +99,41 @@ def build_signal_source(settings: Settings, market_client: DexScreenerClient) ->
                 )
             )
 
+    if settings.bluesky_signal.enabled:
+        from memecoin_trader.signals.bluesky_source import BlueskySource
+
+        logger.info("adding Bluesky signal source alongside %s", primary.name)
+        sources.append(
+            BlueskySource(config=settings.bluesky_signal, chain_id=settings.chain_id, market_client=market_client)
+        )
+
+    if settings.farcaster_signal.enabled:
+        if not settings.secrets.neynar_api_key:
+            logger.warning(
+                "signals.farcaster.enabled is true but NEYNAR_API_KEY is not set — "
+                "skipping the Farcaster signal source"
+            )
+        else:
+            from memecoin_trader.signals.farcaster_source import FarcasterSource
+
+            logger.info("adding Farcaster signal source alongside %s", primary.name)
+            sources.append(
+                FarcasterSource(
+                    config=settings.farcaster_signal,
+                    api_key=settings.secrets.neynar_api_key,
+                    chain_id=settings.chain_id,
+                    market_client=market_client,
+                )
+            )
+
+    if settings.fourchan_signal.enabled:
+        from memecoin_trader.signals.fourchan_source import FourChanBizSource
+
+        logger.info(
+            "adding 4chan /biz/ signal source alongside %s (corroboration-only, capped low)", primary.name
+        )
+        sources.append(FourChanBizSource(config=settings.fourchan_signal, chain_id=settings.chain_id))
+
     if len(sources) == 1:
         return sources[0]
     from memecoin_trader.signals.composite_source import CompositeSignalSource

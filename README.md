@@ -32,6 +32,9 @@ market data                                                            ▲
 | Reddit hype signal | **Enabled but inert until credentialed** — official API, but Reddit now requires a manual, multi-week approval before you can get a key (no more instant self-serve). Runs alongside whichever Twitter/X source is active once set up. See [Reddit](#reddit-official-api-approval-required) |
 | Birdeye trending signal | **Enabled but inert until credentialed** — free API key, self-serve, no approval wait. Third-party momentum ranking, runs alongside everything else. See [Birdeye](#birdeye-trending-tokens-free-api-key-no-approval-wait) |
 | pump.fun launch signal | **Off by default** — free, no-key, real-time on-chain launch feed; highest rug-risk category, so opt-in only. See [pump.fun launch feed](#pumpfun-launch-feed-free-no-key--off-by-default-use-with-caution) |
+| Bluesky signal | **On, works immediately** — free, no key, no approval ever (open reads are the protocol's design). See [Bluesky](#bluesky-free-no-key-no-approval--ever) |
+| Farcaster signal | **Enabled but inert until credentialed** — free API key via Neynar, self-serve, no approval wait. See [Farcaster](#farcaster-free-api-key-no-approval-wait) |
+| 4chan /biz/ signal | **On, works immediately, corroboration-only** — free, no key; capped low so it can never trigger a buy alone. See [4chan /biz/](#4chan-biz-free-no-key--corroboration-only-by-design) |
 | Rug-pull screening | **Real** — [RugCheck.xyz](https://rugcheck.xyz) checked before every buy (mint/freeze authority, LP lock, holder risk), plus liquidity/FDV and price-spike heuristics from DexScreener data |
 | Trade-quality ML model | **On by default, but a no-op until trained** — auto-trains itself on the bot's own closed-trade history once there's enough of it; see [Machine learning](#machine-learning) |
 | Money | **Simulated** ("paper" mode) by default. A real Solana execution path exists (`--live`) but is off by default and hard-gated — see [Going live](#going-live) |
@@ -208,6 +211,49 @@ restart — no API key needed. PumpPortal's exact message schema (`mint`,
 not verified live from this sandbox; watch the logs the first time it runs
 for real.
 
+### Bluesky (free, no key, no approval — ever)
+
+`BlueskySource` (`memecoin_trader/signals/bluesky_source.py`) polls
+Bluesky's fully public `searchPosts` endpoint. Unlike X/Twitter, open
+unauthenticated reads are the AT Protocol's actual design intent — there's
+no approval gate, no key, and no ToS-violation risk comparable to the
+Twitter scraper, because permissionless public reads are the point of the
+protocol. On by default, works immediately, no setup.
+
+### Farcaster (free API key, no approval wait)
+
+`FarcasterSource` (`memecoin_trader/signals/farcaster_source.py`) searches
+casts via [Neynar](https://neynar.com), the standard developer platform
+built on top of Farcaster's protocol (which doesn't support full-text
+search on its own). Needs a free, self-serve `NEYNAR_API_KEY` — sign up at
+neynar.com, no approval wait like Reddit. On by default in `config.yaml`
+but inert without the key. Worth knowing: Farcaster's community skews
+Ethereum/Base rather than Solana-specific, so expect fewer hits here than
+the other sources for this bot's Solana-only universe — it's still a real,
+independent signal for whatever crossover chatter exists.
+
+### 4chan /biz/ (free, no key — corroboration-only by design)
+
+`FourChanBizSource` (`memecoin_trader/signals/fourchan_source.py`) reads
+4chan's free, public, unauthenticated `/biz/` catalog — a long-standing
+origin point for early shitcoin/memecoin chatter, arguably predating
+crypto Twitter for this exact purpose. No key, no login, no approval.
+
+**This one is deliberately wired to never trigger a buy on its own.**
+`/biz/` is anonymous and often adversarial — posting a contract address as
+a joke, or specifically to bait newcomers into buying something about to
+be dumped on, is common there. Its signal score is capped low enough
+(`MAX_SIGNAL_SCORE = 25.0` in the source file) that even after
+`entry.corroboration_bonus_score` (+15 by default) is added, it still
+can't clear a sane `entry.mention_score_threshold` (55 by default) by
+itself. What it *can* do is add to the "how many distinct sources have
+flagged this token recently" count — so if /biz/ and a real source (say,
+Bluesky) both flag the same token, /biz/'s mention helps push the *real*
+source's signal over the threshold via the corroboration bonus, without
+ever being trusted as a signal on its own. If you ever tune
+`mention_score_threshold` dramatically lower than the default, revisit
+this cap — the safety property only holds at realistic threshold values.
+
 **Not integrated, and why:** Truth Social has no public API either, so
 scanning it would mean the same throwaway-account browser scraping as
 Twitter/X, for a platform with much less crypto-trading chatter — not worth
@@ -217,7 +263,16 @@ RugCheck.xyz (already integrated) covers the Solana-specific equivalent
 (mint/freeze authority, LP locks). GMGN.AI has no public API either, only
 private endpoints that would need reverse-engineering. Photon and BullX are
 trading terminals/UI, not data providers — they don't expose anything this
-bot doesn't already get from DexScreener.
+bot doesn't already get from DexScreener. Reddit's classic Data API is
+being wound down for new external-data use cases in favor of Devvit
+(Reddit's in-platform app framework, which can't serve data out to an
+external bot like this one) — not worth pursuing further; see the
+[Reddit](#reddit-official-api-approval-required) section above for the
+full story. Discord and Telegram alpha-calling servers/groups are real
+sources of hype but require either admin access to add a bot (most
+worthwhile servers ban bots specifically to prevent this) or scraping a
+platform we haven't evaluated the ToS risk of yet — ask if you have a
+specific server you can actually get a bot into.
 
 ### Why the simulation should be trusted
 
@@ -671,6 +726,9 @@ memecoin_trader/
     reddit_source.py       real Reddit via its free official API (needs approval + REDDIT_CLIENT_ID/SECRET)
     birdeye_source.py      Birdeye's free trending-tokens API (needs BIRDEYE_API_KEY)
     pumpfun_source.py      pump.fun launches via PumpPortal's free WebSocket (off by default, no key needed)
+    bluesky_source.py      Bluesky's free public searchPosts API (no key, ever)
+    farcaster_source.py    Farcaster casts via Neynar's free-tier API (needs NEYNAR_API_KEY)
+    fourchan_source.py     4chan /biz/ catalog (no key; corroboration-only, capped low)
     composite_source.py    merges multiple signal sources (e.g. Twitter + Reddit + Birdeye) into one
   market/
     dexscreener.py        real public market data client

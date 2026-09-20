@@ -15,8 +15,24 @@ def _with_mock_alongside_real(settings, run_alongside_real: bool):
     return dataclasses.replace(settings, mock_signal=dataclasses.replace(settings.mock_signal, run_alongside_real=run_alongside_real))
 
 
+def _disable_additive_sources(settings):
+    """Reddit/Birdeye/Farcaster are skip-with-warning without credentials
+    already, but Bluesky and 4chan need no credentials at all and are on by
+    default -- explicitly disabling every additive source keeps these tests
+    isolated to just the one interaction each is actually testing."""
+    return dataclasses.replace(
+        settings,
+        reddit_signal=dataclasses.replace(settings.reddit_signal, enabled=False),
+        pumpfun_signal=dataclasses.replace(settings.pumpfun_signal, enabled=False),
+        birdeye_signal=dataclasses.replace(settings.birdeye_signal, enabled=False),
+        bluesky_signal=dataclasses.replace(settings.bluesky_signal, enabled=False),
+        farcaster_signal=dataclasses.replace(settings.farcaster_signal, enabled=False),
+        fourchan_signal=dataclasses.replace(settings.fourchan_signal, enabled=False),
+    )
+
+
 def test_defaults_to_mock_only_with_no_real_source_configured():
-    settings = load_settings()
+    settings = _disable_additive_sources(load_settings())
     market = DexScreenerClient()
 
     source = build_signal_source(settings, market)
@@ -25,7 +41,7 @@ def test_defaults_to_mock_only_with_no_real_source_configured():
 
 
 def test_mock_runs_alongside_real_source_when_enabled():
-    settings = _with_mock_alongside_real(_with_bearer_token(load_settings()), True)
+    settings = _disable_additive_sources(_with_mock_alongside_real(_with_bearer_token(load_settings()), True))
     market = DexScreenerClient()
 
     source = build_signal_source(settings, market)
@@ -35,9 +51,40 @@ def test_mock_runs_alongside_real_source_when_enabled():
 
 
 def test_mock_does_not_run_alongside_real_source_when_disabled():
-    settings = _with_mock_alongside_real(_with_bearer_token(load_settings()), False)
+    settings = _disable_additive_sources(_with_mock_alongside_real(_with_bearer_token(load_settings()), False))
     market = DexScreenerClient()
 
     source = build_signal_source(settings, market)
 
     assert source.name == "twitter_api"
+
+
+def test_bluesky_and_fourchan_are_on_by_default_needing_no_credentials():
+    settings = load_settings()
+    market = DexScreenerClient()
+
+    source = build_signal_source(settings, market)
+
+    assert isinstance(source, CompositeSignalSource)
+    assert "bluesky" in source.name
+    assert "fourchan_biz" in source.name
+
+
+def test_farcaster_is_skipped_without_an_api_key():
+    settings = load_settings()
+    market = DexScreenerClient()
+
+    source = build_signal_source(settings, market)
+
+    names = source.name if isinstance(source, CompositeSignalSource) else source.name
+    assert "farcaster" not in names
+
+
+def test_farcaster_is_added_once_credentialed():
+    settings = load_settings()
+    settings = dataclasses.replace(settings, secrets=dataclasses.replace(settings.secrets, neynar_api_key="fake-key"))
+    market = DexScreenerClient()
+
+    source = build_signal_source(settings, market)
+
+    assert "farcaster" in source.name
