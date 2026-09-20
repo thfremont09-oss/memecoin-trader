@@ -145,11 +145,14 @@
     image-rendering: pixelated;
     image-rendering: -moz-crisp-edges;
     image-rendering: crisp-edges;
-    cursor: pointer;
-    pointer-events: auto;
     filter: drop-shadow(0 6px 10px rgba(0,0,0,0.5));
   }
-  .club-canvas.cooldown { cursor: not-allowed; }
+  #clubCanvas { cursor: pointer; pointer-events: auto; }
+  .club-cursor {
+    position: fixed; top: 0; left: 0; z-index: 600;
+    pointer-events: none; user-select: none;
+    transform: translate(-6px, -70px);
+  }
 </style>
 </head>
 <body>
@@ -326,8 +329,11 @@
     <canvas class="mascot-canvas" width="32" height="40"></canvas>
   </div>
 
-  <div id="clubSpot" class="club-spot" title="Click to pick up, click again to swing">
+  <div id="clubSpot" class="club-spot" title="Click to pick up">
     <canvas id="clubCanvas" class="club-canvas" width="16" height="32"></canvas>
+  </div>
+  <div id="clubCursor" class="club-cursor" style="display: none;">
+    <canvas id="clubCursorCanvas" class="club-canvas" width="16" height="32"></canvas>
   </div>
 
 <script>
@@ -337,6 +343,7 @@
   let currentRange = {{ summary.equity_range|tojson }};
   let lastEquityForConfetti = {{ summary.equity_usd }};
   let lastConfettiAt = 0;
+  let lastSeenTradeId = {{ (summary.recent_trades[0].id if summary.recent_trades else 0)|tojson }};
   const gridColor = '#1a1e27';
   const mutedColor = '#8b93a3';
 
@@ -525,11 +532,35 @@
   ];
   let mascotMode = {{ ('dance' if summary.total_return_usd >= 0 else 'sad')|tojson }};
 
+  // A bare-handed punch (click a mascot with no club in hand) knocks him
+  // down for PUNCH_DOWN_MS; clubbing him (click a mascot while clubState
+  // is 'held') is a much harder hit and keeps him down for CLUB_DOWN_MS
+  // instead. clubState/clubLastUseAt are declared here (rather than down
+  // in the club section below) since the mascot click handlers need to
+  // read/write them too.
+  const PUNCH_DOWN_MS = 5000;
+  const CLUB_DOWN_MS = 10000;
+  const CLUB_RETURN_MS = 3000;
+  let clubState = 'idle'; // 'idle' | 'held'
+  let clubLastUseAt = 0;
+
   const mascots = Array.from(document.querySelectorAll('#mascotGroup .mascot-canvas')).map((canvas, i) => {
     const ctx = canvas.getContext('2d');
     ctx.imageSmoothingEnabled = false;
-    const mascot = { ctx, palette: MASCOT_PALETTES[i % MASCOT_PALETTES.length], frameOffset: i, fallenAt: null };
-    canvas.addEventListener('click', () => { mascot.fallenAt = Date.now(); });
+    const mascot = {
+      ctx, palette: MASCOT_PALETTES[i % MASCOT_PALETTES.length], frameOffset: i,
+      fallenAt: null, downDurationMs: PUNCH_DOWN_MS,
+    };
+    canvas.addEventListener('click', () => {
+      const now = Date.now();
+      mascot.fallenAt = now;
+      if (clubState === 'held') {
+        mascot.downDurationMs = CLUB_DOWN_MS;
+        clubLastUseAt = now;
+      } else {
+        mascot.downDurationMs = PUNCH_DOWN_MS;
+      }
+    });
     return mascot;
   });
 
@@ -642,11 +673,12 @@
   }
 
   // Tap reaction: a quick 2-frame tumble, then a slumped-on-the-ground cry
-  // loop (tears alternating so they read as falling) for the rest of the
-  // 5 seconds, regardless of win/loss state.
+  // loop (tears alternating so they read as falling) for the rest of
+  // however long that mascot's downDurationMs says (PUNCH_DOWN_MS for a
+  // bare-handed click, CLUB_DOWN_MS for a club hit), regardless of
+  // win/loss state.
   const FALL_TUMBLE_MS = 350;
   const FALL_CRY_FRAME_MS = 350;
-  const FALL_TOTAL_MS = 5000;
 
   function drawTumbleFrame(ctx, frameIndex, palette) {
     ctx.clearRect(0, 0, MASCOT_W, MASCOT_H);
@@ -721,77 +753,70 @@
     }
   }
 
-  // Frame index is derived from the wall clock rather than an incrementing
-  // counter, so switching mascotMode mid-animation (a refresh tick flips
-  // green<->red) never needs its own timer reset -- the right frame for
-  // whichever mode is active "just falls out" of Date.now().
-  // The club: sits idle in the opposite (bottom-left) corner. Click once to
-  // pick it up, click again to swing it -- a swing knocks down every
-  // mascot at once (same fallenAt mechanism a direct punch-click uses, so
-  // they get the identical tumble/dazed/cry/lump treatment). Every swing
-  // resets a 3s "still in hand" timer; once 3s pass with no further swing
-  // the club snaps back to its idle pose in the corner and starts a 10s
-  // cooldown before it can be picked up again.
+  // The club: sits idle in the opposite (bottom-left) corner. Click it to
+  // actually pick it up -- it then follows your cursor around the page
+  // (a second canvas, #clubCursorCanvas, tracks mousemove) instead of
+  // sitting still, so you aim it yourself. Click on a mascot while it's
+  // in your hand to actually club him (a much longer knockdown than a
+  // bare-handed punch -- see PUNCH_DOWN_MS/CLUB_DOWN_MS above). The club
+  // itself has pointer-events:none while held so your clicks pass through
+  // it to whichever mascot is underneath, rather than the club intercepting
+  // them. Every hit resets a 3s "still in hand" timer; 3s with no further
+  // hit and it teleports back to its idle spot in the corner, ready to be
+  // picked up again immediately (no lockout -- "cooldown" here means how
+  // long a clubbed mascot stays down, not how long the club is unusable).
   const CLUB_W = 16, CLUB_H = 32;
-  const CLUB_RETURN_MS = 3000;
-  const CLUB_COOLDOWN_MS = 10000;
-  let clubState = 'idle'; // 'idle' | 'held' | 'cooldown'
-  let clubLastUseAt = 0;
-  let clubCooldownUntil = 0;
-
+  const clubSpot = document.getElementById('clubSpot');
+  const clubCursorEl = document.getElementById('clubCursor');
   const clubCanvas = document.getElementById('clubCanvas');
   const clubCtx = clubCanvas.getContext('2d');
   clubCtx.imageSmoothingEnabled = false;
+  const clubCursorCanvas = document.getElementById('clubCursorCanvas');
+  const clubCursorCtx = clubCursorCanvas.getContext('2d');
+  clubCursorCtx.imageSmoothingEnabled = false;
 
-  function drawClub(ctx, state) {
+  function drawClub(ctx, held) {
     ctx.clearRect(0, 0, CLUB_W, CLUB_H);
-    // held: lighter wood + lifted a couple px, like it's raised and ready;
-    // cooldown: grayed out. No rotation -- a tilt at this canvas size just
-    // pushes the sprite outside the visible bounds.
-    const wood = state === 'held' ? '#c98a5a' : state === 'cooldown' ? '#5a5a5a' : '#a9714a';
-    const woodDark = state === 'held' ? '#8a5a36' : state === 'cooldown' ? '#3f3f3f' : '#7a4d30';
-    const band = state === 'cooldown' ? '#2e2e2e' : '#3a2a1c';
-    const lift = state === 'held' ? -2 : 0;
-    ctx.save();
-    ctx.translate(0, lift);
+    const wood = held ? '#c98a5a' : '#a9714a';
+    const woodDark = held ? '#8a5a36' : '#7a4d30';
     px(ctx, 6, 16, 4, 16, wood);
-    px(ctx, 6, 20, 4, 2, band);
-    px(ctx, 6, 25, 4, 2, band);
+    px(ctx, 6, 20, 4, 2, '#3a2a1c');
+    px(ctx, 6, 25, 4, 2, '#3a2a1c');
     px(ctx, 3, 2, 10, 16, wood);
     px(ctx, 3, 2, 10, 2, woodDark);
     px(ctx, 3, 14, 10, 2, woodDark);
-    ctx.restore();
   }
 
   clubCanvas.addEventListener('click', () => {
-    if (clubState === 'idle') {
-      clubState = 'held';
-    } else if (clubState === 'held') {
-      const now = Date.now();
-      for (const m of mascots) m.fallenAt = now;
-      clubLastUseAt = now;
+    if (clubState !== 'idle') return;
+    clubState = 'held';
+    clubSpot.style.display = 'none';
+    clubCursorEl.style.display = 'block';
+  });
+
+  document.addEventListener('mousemove', (e) => {
+    if (clubState === 'held') {
+      clubCursorEl.style.left = e.clientX + 'px';
+      clubCursorEl.style.top = e.clientY + 'px';
     }
-    // clicks during 'cooldown' are ignored -- can't pick it up yet
   });
 
   function animateMascots() {
     const now = Date.now();
 
     if (clubState === 'held' && clubLastUseAt > 0 && now - clubLastUseAt >= CLUB_RETURN_MS) {
-      clubState = 'cooldown';
-      clubCooldownUntil = now + CLUB_COOLDOWN_MS;
-      clubLastUseAt = 0;
-    }
-    if (clubState === 'cooldown' && now >= clubCooldownUntil) {
       clubState = 'idle';
+      clubLastUseAt = 0;
+      clubCursorEl.style.display = 'none';
+      clubSpot.style.display = '';
     }
-    clubCanvas.classList.toggle('cooldown', clubState === 'cooldown');
-    drawClub(clubCtx, clubState);
+    drawClub(clubCtx, false);
+    if (clubState === 'held') drawClub(clubCursorCtx, true);
 
     for (const m of mascots) {
       if (m.fallenAt !== null) {
         const elapsed = now - m.fallenAt;
-        if (elapsed < FALL_TOTAL_MS) {
+        if (elapsed < m.downDurationMs) {
           drawFallenFrame(m.ctx, elapsed, m.palette);
           continue;
         }
@@ -1043,6 +1068,73 @@
     lastEquityForConfetti = equityUsd;
   }
 
+  // A dollar-bill shower, the same hand-rolled canvas-overlay technique as
+  // fireConfetti() but with falling money instead of colored squares.
+  function fireDollarShower() {
+    const canvas = document.createElement('canvas');
+    canvas.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;z-index:9999;';
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    document.body.appendChild(canvas);
+    const ctx = canvas.getContext('2d');
+
+    const bills = Array.from({ length: 45 }, () => ({
+      x: Math.random() * canvas.width,
+      y: -30 - Math.random() * canvas.height * 0.4,
+      vx: (Math.random() - 0.5) * 1.5,
+      vy: 1.5 + Math.random() * 2,
+      size: 26 + Math.random() * 16,
+      rotation: Math.random() * 360,
+      rotationSpeed: (Math.random() - 0.5) * 8,
+    }));
+
+    const start = performance.now();
+    const duration = 3500;
+
+    function frame(now) {
+      const elapsed = now - start;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      bills.forEach((b) => {
+        b.x += b.vx;
+        b.y += b.vy;
+        b.vy += 0.03;
+        b.rotation += b.rotationSpeed;
+        ctx.save();
+        ctx.translate(b.x, b.y);
+        ctx.rotate((b.rotation * Math.PI) / 180);
+        ctx.font = `${b.size}px sans-serif`;
+        ctx.fillText('💵', 0, 0);
+        ctx.restore();
+      });
+      if (elapsed < duration) {
+        requestAnimationFrame(frame);
+      } else {
+        canvas.remove();
+      }
+    }
+    requestAnimationFrame(frame);
+  }
+
+  // Any newly-seen sell trade with a positive realized P&L (a coin sold
+  // for profit, not just a price uptick like the confetti above) gets a
+  // dollar shower. Tracks the highest trade id seen so far and only fires
+  // on trades we haven't already reacted to, rather than re-firing on the
+  // same trade every 5s refresh.
+  function checkForProfitableSells(recentTrades) {
+    let maxId = lastSeenTradeId;
+    let sawProfitableSell = false;
+    for (const t of recentTrades) {
+      if (t.id > lastSeenTradeId && t.side === 'sell' && t.realized_pnl_usd !== null && t.realized_pnl_usd > 0) {
+        sawProfitableSell = true;
+      }
+      if (t.id > maxId) maxId = t.id;
+    }
+    lastSeenTradeId = maxId;
+    if (sawProfitableSell) fireDollarShower();
+  }
+
   async function refreshDashboard() {
     try {
       const resp = await fetch('/api/summary?range=' + encodeURIComponent(currentRange));
@@ -1058,6 +1150,7 @@
       renderMascot(s);
       updateChart(s);
       maybeCelebrate(s.equity_usd);
+      checkForProfitableSells(s.recent_trades);
     } catch (err) {
       // Network hiccup -- silently retry on the next interval rather than
       // interrupting the user with an alert every 5s.

@@ -45,8 +45,9 @@ market data                                                            ▲
 | Equity chart zoom | **1MIN / 5M / 1H / 1D / 1W / 1M / YTD / ALL presets** on the dashboard, server-side filtered and downsampled; see [Equity curve zoom](#equity-curve-zoom-1min--5m--1h--1d--1w--1m--ytd--all) |
 | Dashboard refresh speed | **Adjustable 1-60s dial**, client-side only; see [Refresh speed dial](#refresh-speed-dial) |
 | Confetti | **Fires on any >0.5% equity pop** in a single refresh; see [Confetti on a pop](#confetti-on-a-pop) |
+| Dollar-bill shower | **Fires on every profitable sell** — see [Dollar-bill shower on a profitable sell](#dollar-bill-shower-on-a-profitable-sell) |
 | Corner mascot crew | **A few dancing friends, each punchable independently** — see [The corner mascot (and his friends)](#the-corner-mascot-and-his-friends) |
-| The club | **Pick up, swing at all of them, 3s-idle auto-return, 10s cooldown** — see [The club](#the-club) |
+| The club | **Cursor-tracked pickup, clubbing a mascot doubles his down-time, 3s-idle auto-return** — see [The club](#the-club) |
 | Money | **Simulated** ("paper" mode) by default. A real Solana execution path exists (`--live`) but is off by default and hard-gated — see [Going live](#going-live) |
 
 ### Why the Twitter signal is simulated
@@ -467,6 +468,18 @@ installed. A 15-second cooldown keeps a sustained rally from firing a new
 burst on every single tick; it can still fire again and again across a
 longer rally, just not back-to-back.
 
+## Dollar-bill shower on a profitable sell
+
+Whenever the bot actually closes out a sell trade at a profit (positive
+`realized_pnl_usd`, not just equity ticking up from a mark-to-market
+price move like the confetti above), a shower of 💵 bills rains down the
+screen for a few seconds — same hand-rolled canvas-overlay technique as
+the confetti, so no extra library. The dashboard tracks the highest
+trade id it's already reacted to and only fires on new profitable sells
+it hasn't seen yet, so a trade never re-triggers the shower on a later
+refresh, and several profitable sells landing in the same 5-second
+window still just fire once.
+
 ## The corner mascot (and his friends)
 
 Bottom-right corner of the dashboard: a little crew of hand-drawn
@@ -496,26 +509,35 @@ up or down at the moment — before picking himself back up into whatever
 the group's normal state (dancing or sad) currently is. Each friend
 tracks his own `fallenAt` timestamp independently, so punching one
 doesn't interrupt the others, and clicking him again mid-cry just resets
-his own 5-second clock rather than needing any special-case handling.
-Every hit — punch or club — also leaves a little cartoon bump (a bruise
-with a couple of impact sparks) on the victim's head for as long as he's
-down, drawn as part of the same tumble/dazed/cry poses.
+his own down-time clock rather than needing any special-case handling.
+Every hit — bare-handed punch or [club](#the-club) — also leaves a
+little cartoon bump (a bruise with a couple of impact sparks) on the
+victim's head for as long as he's down, drawn as part of the same
+tumble/dazed/cry poses. A club hit keeps him down twice as long as a
+punch — see below.
 
 ## The club
 
 Bottom-left corner (opposite the mascots): a small pixel-art club, idle
-and waiting. Click it once to pick it up (it lifts slightly and lightens
-color), click it again to swing — a swing knocks down *every* mascot at
-once, using the exact same `fallenAt` mechanism a direct punch does, so
-they all get the full tumble/dazed/cry/lump treatment together.
+and waiting. Click it to actually pick it up — it then follows your
+mouse cursor around the whole page (a second canvas tracks `mousemove`)
+instead of sitting still, so you aim it yourself. Move it over a mascot
+and click him to actually club him. The club itself ignores clicks while
+held (`pointer-events: none`), so your click passes straight through it
+to whichever mascot is underneath, rather than the club intercepting its
+own click.
 
-Each swing resets a 3-second "still in hand" timer, so you can chain
-swings back-to-back as long as you keep clicking within 3s of the last
-one. Let it sit for 3s with no swing and it snaps back to its idle pose
-in the corner, then starts a 10-second cooldown (grayed out, clicks
-ignored) before it can be picked up again. State machine: `idle` →
-(click) → `held` → (click) → swing, reset 3s timer, stay `held` →
-(3s pass with no swing) → `cooldown` for 10s → back to `idle`.
+A club hit is a much harder knockdown than a bare-handed punch: a direct
+click on a mascot with no club in hand keeps him down for 5 seconds
+(`PUNCH_DOWN_MS`); clubbing him keeps him down for 10 seconds instead
+(`CLUB_DOWN_MS`) — that's the "cooldown" in the down-time sense, not a
+lockout on the club itself. Each hit resets a 3-second "still in hand"
+timer; let 3 seconds pass with no further hit and the club teleports
+back to its idle spot in the corner, ready to be picked up again
+immediately — no waiting period on the club, ever. State machine:
+`idle` → (click the club) → `held`, tracking the cursor → (click a
+mascot) → that mascot goes down for 10s, reset the 3s timer, stay
+`held` → (3s pass with no hit) → back to `idle` in the corner.
 
 ## Caution level (buy-frequency slider)
 
