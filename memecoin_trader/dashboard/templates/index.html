@@ -108,7 +108,7 @@
     <h1>
       Memecoin Trader
       <span class="badge {{ mode }}">{{ mode }}</span>
-      <span class="badge {{ 'online' if summary.trading_enabled else 'offline' }}">
+      <span id="statusBadge" class="badge {{ 'online' if summary.trading_enabled else 'offline' }}">
         {{ 'online' if summary.trading_enabled else 'offline' }}
       </span>
     </h1>
@@ -146,25 +146,25 @@
   <div class="cards">
     <div class="card">
       <div class="label">Equity</div>
-      <div class="value">${{ "%.2f"|format(summary.equity_usd) }}</div>
+      <div class="value" id="equityValue">${{ "%.2f"|format(summary.equity_usd) }}</div>
     </div>
     <div class="card">
       <div class="label">Cash</div>
-      <div class="value">${{ "%.2f"|format(summary.cash_usd) }}</div>
+      <div class="value" id="cashValue">${{ "%.2f"|format(summary.cash_usd) }}</div>
     </div>
     <div class="card">
       <div class="label">In positions</div>
-      <div class="value">${{ "%.2f"|format(summary.positions_value_usd) }}</div>
+      <div class="value" id="positionsValue">${{ "%.2f"|format(summary.positions_value_usd) }}</div>
     </div>
     <div class="card">
       <div class="label">Total return</div>
-      <div class="value {{ 'positive' if summary.total_return_usd >= 0 else 'negative' }}">
+      <div class="value {{ 'positive' if summary.total_return_usd >= 0 else 'negative' }}" id="totalReturnValue">
         {{ "%+.2f"|format(summary.total_return_usd) }} ({{ "%+.1f"|format(summary.total_return_pct) }}%)
       </div>
     </div>
     <div class="card">
       <div class="label">Realized P&amp;L</div>
-      <div class="value {{ 'positive' if summary.realized_pnl_usd >= 0 else 'negative' }}">
+      <div class="value {{ 'positive' if summary.realized_pnl_usd >= 0 else 'negative' }}" id="realizedPnlValue">
         {{ "%+.2f"|format(summary.realized_pnl_usd) }}
       </div>
     </div>
@@ -173,8 +173,8 @@
   <div class="panel">
     <div class="chart-header">
       <h2>Equity curve</h2>
-      <span class="change {{ 'positive' if summary.total_return_usd >= 0 else 'negative' }}">
-        {{ "%+.2f"|format(summary.total_return_usd) }} ({{ "%+.1f"|format(summary.total_return_pct) }}%) since start
+      <span class="change {{ 'positive' if summary.total_return_usd >= 0 else 'negative' }}" id="equityChangeLabel">
+        <span id="equityChangeText">{{ "%+.2f"|format(summary.total_return_usd) }} ({{ "%+.1f"|format(summary.total_return_pct) }}%) since start</span>
         <span class="baseline-note">· baseline ${{ "%.2f"|format(summary.starting_balance_usd) }}</span>
       </span>
     </div>
@@ -182,7 +182,8 @@
   </div>
 
   <div class="panel">
-    <h2>Open positions ({{ summary.open_positions|length }})</h2>
+    <h2 id="openPositionsHeading">Open positions ({{ summary.open_positions|length }})</h2>
+    <div id="openPositionsBody">
     {% if summary.open_positions %}
     <table>
       <tr><th>Symbol</th><th>Qty</th><th>Entry</th><th>Now</th><th>Value</th><th>P&amp;L</th><th>Opened</th><th>Source</th><th></th></tr>
@@ -205,10 +206,12 @@
     {% else %}
     <div class="empty">No open positions right now.</div>
     {% endif %}
+    </div>
   </div>
 
   <div class="panel">
     <h2>Recent trades</h2>
+    <div id="recentTradesBody">
     {% if summary.recent_trades %}
     <table>
       <tr><th>Time</th><th>Side</th><th>Symbol</th><th>Amount</th><th>Price</th><th>Reason</th><th>P&amp;L</th></tr>
@@ -229,10 +232,12 @@
     {% else %}
     <div class="empty">No trades yet.</div>
     {% endif %}
+    </div>
   </div>
 
   <div class="panel">
     <h2>Performance by signal source</h2>
+    <div id="performanceBody">
     {% if summary.performance_by_source %}
     <table>
       <tr><th>Source</th><th>Closed trades</th><th>Win rate</th><th>Total P&amp;L</th><th>Avg P&amp;L</th></tr>
@@ -249,28 +254,40 @@
     {% else %}
     <div class="empty">No closed trades yet — nothing to compare sources on.</div>
     {% endif %}
+    </div>
   </div>
 
 <script>
-  const equityCurve = {{ summary.equity_curve|tojson }};
+  let equityCurve = {{ summary.equity_curve|tojson }};
   const startingBalance = {{ summary.starting_balance_usd }};
-  const isUp = {{ 'true' if summary.total_return_usd >= 0 else 'false' }};
-  const lineColor = isUp ? '#3ecf8e' : '#ef5b5b';
-  const fillColorTop = isUp ? 'rgba(62,207,142,0.20)' : 'rgba(239,91,91,0.20)';
+  let isUp = {{ 'true' if summary.total_return_usd >= 0 else 'false' }};
   const gridColor = '#1a1e27';
   const mutedColor = '#8b93a3';
 
+  function lineColorFor(up) { return up ? '#3ecf8e' : '#ef5b5b'; }
+  function fillColorFor(up) { return up ? 'rgba(62,207,142,0.20)' : 'rgba(239,91,91,0.20)'; }
+
   function equityGradient(chartCtx) {
     const area = chartCtx.chart.chartArea;
-    if (!area) return fillColorTop;  // first layout pass, before chartArea exists
+    if (!area) return fillColorFor(isUp);  // first layout pass, before chartArea exists
     const gradient = chartCtx.chart.ctx.createLinearGradient(0, area.top, 0, area.bottom);
-    gradient.addColorStop(0, fillColorTop);
+    gradient.addColorStop(0, fillColorFor(isUp));
     gradient.addColorStop(1, 'rgba(0,0,0,0)');
     return gradient;
   }
 
   function formatUsd(v) {
     return '$' + Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  // Matches Python's "%.2f" / "%+.2f" / "%+.1f" (no thousands separator), so
+  // a JS-driven refresh renders numbers identically to the initial SSR pass
+  // -- otherwise the digits would visibly reflow every 5s even without a
+  // page reload.
+  function fmt(v, decimals) { return Number(v).toFixed(decimals); }
+  function fmtSigned(v, decimals) {
+    const n = Number(v);
+    return (n >= 0 ? '+' : '') + n.toFixed(decimals);
   }
 
   // Chart.js draws points at radius 0 for a clean line, so the built-in
@@ -319,14 +336,14 @@
   };
 
   const ctx = document.getElementById('equityChart');
-  new Chart(ctx, {
+  const chart = new Chart(ctx, {
     type: 'line',
     data: {
       labels: equityCurve.map(p => p.recorded_at.slice(5, 16).replace('T', ' ')),
       datasets: [{
         label: 'Equity',
         data: equityCurve.map(p => p.equity_usd),
-        borderColor: lineColor,
+        borderColor: lineColorFor(isUp),
         backgroundColor: equityGradient,
         borderWidth: 2,
         fill: true,
@@ -334,7 +351,7 @@
         pointRadius: 0,
         pointHoverRadius: 4,
         pointHitRadius: 20,
-        pointBackgroundColor: lineColor,
+        pointBackgroundColor: lineColorFor(isUp),
         pointBorderColor: '#14171f',
         pointBorderWidth: 2,
       }]
@@ -379,7 +396,203 @@
     plugins: [crosshairPlugin, baselinePlugin],
   });
 
-  setTimeout(() => location.reload(), 5000);
+  // ---- Live refresh, in place -----------------------------------------
+  // Used to be a plain `setTimeout(() => location.reload(), 5000)`, which
+  // reloaded the entire document every 5s: white flash, chart torn down and
+  // rebuilt from nothing, scroll position reset, any open browser tooltip
+  // or in-progress slider drag wiped out. Everything below instead fetches
+  // /api/summary (the same JSON the page was originally rendered from) and
+  // patches only the numbers/rows/chart data that actually changed, so nothing
+  // jumps unless a value genuinely moved.
+
+  function cell(text, cls) {
+    const td = document.createElement('td');
+    td.textContent = text;
+    if (cls) td.className = cls;
+    return td;
+  }
+
+  function pnlClass(v) { return v >= 0 ? 'positive' : 'negative'; }
+
+  function renderCards(s) {
+    document.getElementById('equityValue').textContent = '$' + fmt(s.equity_usd, 2);
+    document.getElementById('cashValue').textContent = '$' + fmt(s.cash_usd, 2);
+    document.getElementById('positionsValue').textContent = '$' + fmt(s.positions_value_usd, 2);
+
+    const totalReturnEl = document.getElementById('totalReturnValue');
+    totalReturnEl.textContent = `${fmtSigned(s.total_return_usd, 2)} (${fmtSigned(s.total_return_pct, 1)}%)`;
+    totalReturnEl.className = 'value ' + pnlClass(s.total_return_usd);
+
+    const realizedEl = document.getElementById('realizedPnlValue');
+    realizedEl.textContent = fmtSigned(s.realized_pnl_usd, 2);
+    realizedEl.className = 'value ' + pnlClass(s.realized_pnl_usd);
+
+    document.getElementById('equityChangeText').textContent =
+      `${fmtSigned(s.total_return_usd, 2)} (${fmtSigned(s.total_return_pct, 1)}%) since start`;
+    document.getElementById('equityChangeLabel').className = 'change ' + pnlClass(s.total_return_usd);
+  }
+
+  function renderStatus(s) {
+    const badge = document.getElementById('statusBadge');
+    badge.textContent = s.trading_enabled ? 'online' : 'offline';
+    badge.className = 'badge ' + (s.trading_enabled ? 'online' : 'offline');
+    document.getElementById('offlineBtn').disabled = !s.trading_enabled;
+    document.getElementById('onlineBtn').disabled = s.trading_enabled;
+  }
+
+  function renderPositions(s) {
+    document.getElementById('openPositionsHeading').textContent = `Open positions (${s.open_positions.length})`;
+    const container = document.getElementById('openPositionsBody');
+    container.innerHTML = '';
+    if (!s.open_positions.length) {
+      const empty = document.createElement('div');
+      empty.className = 'empty';
+      empty.textContent = 'No open positions right now.';
+      container.appendChild(empty);
+      return;
+    }
+    const table = document.createElement('table');
+    const header = document.createElement('tr');
+    ['Symbol', 'Qty', 'Entry', 'Now', 'Value', 'P&L', 'Opened', 'Source', ''].forEach((h) => {
+      const th = document.createElement('th');
+      th.textContent = h;
+      header.appendChild(th);
+    });
+    table.appendChild(header);
+    s.open_positions.forEach((p) => {
+      const row = document.createElement('tr');
+      row.appendChild(cell(p.symbol));
+      row.appendChild(cell(fmt(p.quantity, 4)));
+      row.appendChild(cell('$' + fmt(p.entry_price_usd, 6)));
+      row.appendChild(cell('$' + fmt(p.current_price_usd, 6)));
+      row.appendChild(cell('$' + fmt(p.value_usd, 2)));
+      row.appendChild(cell(
+        `${fmtSigned(p.unrealized_pnl_usd, 2)} (${fmtSigned(p.unrealized_pnl_pct, 1)}%)`,
+        pnlClass(p.unrealized_pnl_usd),
+      ));
+      row.appendChild(cell(p.opened_at.slice(0, 16)));
+      row.appendChild(cell(`${p.signal_source} (${fmt(p.signal_score, 0)})`));
+
+      const sellTd = document.createElement('td');
+      const btn = document.createElement('button');
+      btn.className = 'btn-sell';
+      btn.textContent = 'Sell';
+      btn.dataset.token = p.token_address;
+      btn.dataset.symbol = p.symbol;
+      btn.addEventListener('click', () => sellOne(btn));
+      sellTd.appendChild(btn);
+      row.appendChild(sellTd);
+
+      table.appendChild(row);
+    });
+    container.appendChild(table);
+  }
+
+  function renderTrades(s) {
+    const container = document.getElementById('recentTradesBody');
+    container.innerHTML = '';
+    if (!s.recent_trades.length) {
+      const empty = document.createElement('div');
+      empty.className = 'empty';
+      empty.textContent = 'No trades yet.';
+      container.appendChild(empty);
+      return;
+    }
+    const table = document.createElement('table');
+    const header = document.createElement('tr');
+    ['Time', 'Side', 'Symbol', 'Amount', 'Price', 'Reason', 'P&L'].forEach((h) => {
+      const th = document.createElement('th');
+      th.textContent = h;
+      header.appendChild(th);
+    });
+    table.appendChild(header);
+    s.recent_trades.forEach((t) => {
+      const row = document.createElement('tr');
+      row.appendChild(cell(t.executed_at.slice(0, 16)));
+      row.appendChild(cell(t.side));
+      row.appendChild(cell(t.symbol));
+      row.appendChild(cell('$' + fmt(t.amount_usd, 2)));
+      row.appendChild(cell('$' + fmt(t.price_usd, 6)));
+      row.appendChild(cell(t.reason));
+      row.appendChild(cell(
+        t.realized_pnl_usd === null ? '—' : fmtSigned(t.realized_pnl_usd, 2),
+        t.realized_pnl_usd === null ? '' : pnlClass(t.realized_pnl_usd),
+      ));
+      table.appendChild(row);
+    });
+    container.appendChild(table);
+  }
+
+  function renderPerformance(s) {
+    const container = document.getElementById('performanceBody');
+    container.innerHTML = '';
+    if (!s.performance_by_source.length) {
+      const empty = document.createElement('div');
+      empty.className = 'empty';
+      empty.textContent = 'No closed trades yet — nothing to compare sources on.';
+      container.appendChild(empty);
+      return;
+    }
+    const table = document.createElement('table');
+    const header = document.createElement('tr');
+    ['Source', 'Closed trades', 'Win rate', 'Total P&L', 'Avg P&L'].forEach((h) => {
+      const th = document.createElement('th');
+      th.textContent = h;
+      header.appendChild(th);
+    });
+    table.appendChild(header);
+    s.performance_by_source.forEach((row_) => {
+      const row = document.createElement('tr');
+      row.appendChild(cell(row_.source));
+      row.appendChild(cell(row_.closed_trades));
+      row.appendChild(cell(fmt(row_.win_rate_pct, 0) + '%'));
+      row.appendChild(cell(fmtSigned(row_.total_pnl_usd, 2), pnlClass(row_.total_pnl_usd)));
+      row.appendChild(cell(fmtSigned(row_.avg_pnl_usd, 2), pnlClass(row_.avg_pnl_usd)));
+      table.appendChild(row);
+    });
+    container.appendChild(table);
+  }
+
+  function renderCaution(s) {
+    // Skip touching the slider/label while the user has it focused (mid-drag
+    // or just clicked) so a periodic refresh can't yank it out from under them.
+    if (document.activeElement === cautionSlider) return;
+    cautionSlider.value = s.caution_level;
+    cautionLabel.textContent = s.caution_label;
+  }
+
+  function updateChart(s) {
+    isUp = s.total_return_usd >= 0;
+    equityCurve = s.equity_curve;
+    chart.data.labels = equityCurve.map((p) => p.recorded_at.slice(5, 16).replace('T', ' '));
+    chart.data.datasets[0].data = equityCurve.map((p) => p.equity_usd);
+    chart.data.datasets[0].borderColor = lineColorFor(isUp);
+    chart.data.datasets[0].pointBackgroundColor = lineColorFor(isUp);
+    // 'none' skips the entry animation -- with it, every 5s refresh would
+    // replay the whole line-drawing animation, which reads as a jerk/flicker
+    // even though nothing reloaded.
+    chart.update('none');
+  }
+
+  async function refreshDashboard() {
+    try {
+      const resp = await fetch('/api/summary');
+      if (!resp.ok) return;  // e.g. a transient 401/500 -- just try again next tick
+      const s = await resp.json();
+      renderStatus(s);
+      renderCards(s);
+      renderPositions(s);
+      renderTrades(s);
+      renderPerformance(s);
+      renderCaution(s);
+      updateChart(s);
+    } catch (err) {
+      // Network hiccup -- silently retry on the next interval rather than
+      // interrupting the user with an alert every 5s.
+    }
+  }
+
+  setInterval(refreshDashboard, 5000);
 
   async function postAction(url, btn, busyText, idleText) {
     if (btn) { btn.disabled = true; btn.textContent = busyText; }
@@ -391,9 +604,10 @@
       }
       const data = await resp.json();
       alert(data.message);
-      location.reload();
+      await refreshDashboard();
     } catch (err) {
       alert('Request failed: ' + err);
+    } finally {
       if (btn) { btn.disabled = false; btn.textContent = idleText; }
     }
   }
@@ -409,17 +623,20 @@
     postAction('/api/online', document.getElementById('onlineBtn'), 'Going online...', 'Go online');
   }
 
-  // Delegated via data-attributes (never interpolating token/symbol into a JS
-  // string server-side) since both come from external market data.
+  // Bound individually per Sell button (rebuilt on every refresh, unlike the
+  // static offline/online buttons) rather than delegated, since each button
+  // already carries its own token/symbol via data-attributes.
+  function sellOne(btn) {
+    const symbol = btn.dataset.symbol;
+    const token = btn.dataset.token;
+    if (!confirm(`Sell your ${symbol} position right now at current market price?`)) {
+      return;
+    }
+    postAction('/api/sell/' + encodeURIComponent(token), btn, 'Selling...', 'Sell');
+  }
+
   document.querySelectorAll('.btn-sell').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      const symbol = btn.dataset.symbol;
-      const token = btn.dataset.token;
-      if (!confirm(`Sell your ${symbol} position right now at current market price?`)) {
-        return;
-      }
-      postAction('/api/sell/' + encodeURIComponent(token), btn, 'Selling...', 'Sell');
-    });
+    btn.addEventListener('click', () => sellOne(btn));
   });
 
   // 'change' (fires once on release), not 'input' (fires on every pixel of
