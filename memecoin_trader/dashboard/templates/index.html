@@ -122,6 +122,25 @@
     width: 12px; height: 12px; border-radius: 50%; border: none;
     background: var(--accent); cursor: pointer;
   }
+  .mascot {
+    position: fixed; bottom: 20px; right: 24px; z-index: 500;
+    pointer-events: none; user-select: none;
+    filter: drop-shadow(0 6px 12px rgba(0,0,0,0.45));
+  }
+  .mascot-char { display: inline-block; font-size: 52px; line-height: 1; transform-origin: bottom center; }
+  .mascot-char.dancing { animation: mascot-dance 0.55s ease-in-out infinite; }
+  .mascot-char.sad { animation: mascot-sad 2.4s ease-in-out infinite; filter: grayscale(0.5) brightness(0.85); }
+  @keyframes mascot-dance {
+    0%   { transform: translateY(0) rotate(-12deg); }
+    25%  { transform: translateY(-16px) rotate(10deg); }
+    50%  { transform: translateY(0) rotate(-8deg); }
+    75%  { transform: translateY(-10px) rotate(12deg); }
+    100% { transform: translateY(0) rotate(-12deg); }
+  }
+  @keyframes mascot-sad {
+    0%, 100% { transform: translateY(0) rotate(0deg); }
+    50%      { transform: translateY(6px) rotate(-4deg); }
+  }
 </style>
 </head>
 <body>
@@ -290,6 +309,14 @@
     <div class="empty">No closed trades yet — nothing to compare sources on.</div>
     {% endif %}
     </div>
+  </div>
+
+  <div id="mascot" class="mascot" title="How we're doing">
+    {% if summary.total_return_usd >= 0 %}
+    <span id="mascotChar" class="mascot-char dancing">🕺</span>
+    {% else %}
+    <span id="mascotChar" class="mascot-char sad">🙍‍♂️</span>
+    {% endif %}
   </div>
 
 <script>
@@ -468,6 +495,15 @@
     document.getElementById('equityChangeText').textContent =
       `${fmtSigned(s.total_return_usd, 2)} (${fmtSigned(s.total_return_pct, 1)}%) since start`;
     document.getElementById('equityChangeLabel').className = 'change ' + pnlClass(s.total_return_usd);
+  }
+
+  // The corner mascot: dancing in the green, slumped and sad in the red --
+  // same >= 0 convention as every other positive/negative split on this page.
+  function renderMascot(s) {
+    const mascotChar = document.getElementById('mascotChar');
+    const inTheGreen = s.total_return_usd >= 0;
+    mascotChar.textContent = inTheGreen ? '🕺' : '🙍‍♂️';
+    mascotChar.className = 'mascot-char ' + (inTheGreen ? 'dancing' : 'sad');
   }
 
   function renderStatus(s) {
@@ -713,6 +749,7 @@
       renderPerformance(s);
       renderCaution(s);
       renderRangeButtons(s);
+      renderMascot(s);
       updateChart(s);
       maybeCelebrate(s.equity_usd);
     } catch (err) {

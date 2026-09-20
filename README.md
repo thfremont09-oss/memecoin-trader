@@ -45,6 +45,7 @@ market data                                                            ▲
 | Equity chart zoom | **1MIN / 5M / 1H / 1D / 1W / 1M / YTD / ALL presets** on the dashboard, server-side filtered and downsampled; see [Equity curve zoom](#equity-curve-zoom-1min--5m--1h--1d--1w--1m--ytd--all) |
 | Dashboard refresh speed | **Adjustable 1-60s dial**, client-side only; see [Refresh speed dial](#refresh-speed-dial) |
 | Confetti | **Fires on any >0.5% equity pop** in a single refresh; see [Confetti on a pop](#confetti-on-a-pop) |
+| Corner mascot | **Dances in the green, slumps sad in the red** — see [The corner mascot](#the-corner-mascot) |
 | Money | **Simulated** ("paper" mode) by default. A real Solana execution path exists (`--live`) but is off by default and hard-gated — see [Going live](#going-live) |
 
 ### Why the Twitter signal is simulated
@@ -464,6 +465,15 @@ hand (no external library/CDN), so it works offline and needs nothing
 installed. A 15-second cooldown keeps a sustained rally from firing a new
 burst on every single tick; it can still fire again and again across a
 longer rally, just not back-to-back.
+
+## The corner mascot
+
+Bottom-right corner of the dashboard: a little guy who dances (🕺) while
+total return is flat or positive, and slumps into a sad, desaturated frown
+(🙍‍♂️) the moment it dips into the red. Purely cosmetic — plain emoji plus
+a couple of CSS `@keyframes` animations, no images or libraries — and it
+updates on every refresh tick using the exact same `total_return_usd >= 0`
+rule the rest of the page already uses for its green/red split.
 
 ## Caution level (buy-frequency slider)
 

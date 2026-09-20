@@ -186,6 +186,25 @@ def test_index_renders_equity_range_buttons_defaulting_to_all(client):
     assert 'data-range="all"' in resp.text
 
 
+def test_mascot_dances_when_flat_or_in_the_green(client):
+    c, _ = client
+    resp = c.get("/")
+    assert 'class="mascot-char dancing"' in resp.text
+    assert "🕺" in resp.text
+
+
+def test_mascot_is_sad_when_in_the_red(client):
+    c, db_path = client
+    conn = get_connection(db_path)
+    conn.execute("UPDATE portfolio_state SET cash_usd = '50' WHERE id = 1")
+    conn.commit()
+    conn.close()
+
+    resp = c.get("/")
+    assert 'class="mascot-char sad"' in resp.text
+    assert "🙍" in resp.text
+
+
 def _seed_equity_history(db_path):
     from datetime import datetime, timedelta, timezone
 
