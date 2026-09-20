@@ -135,6 +135,44 @@ def test_dashboard_requires_auth_when_credentials_configured(client, monkeypatch
     assert c.post("/api/offline").status_code == 401
     assert c.post("/api/online").status_code == 401
     assert c.post("/api/sell/TOKEN1").status_code == 401
+    assert c.post("/api/caution-level/4").status_code == 401
     assert c.get("/", auth=("alice", "wrong")).status_code == 401
     assert c.get("/", auth=("alice", "s3cret")).status_code == 200
     assert c.post("/api/online", auth=("alice", "s3cret")).status_code == 200
+
+
+def test_index_renders_caution_slider_at_default_level(client):
+    c, _ = client
+    resp = c.get("/")
+    assert 'id="cautionSlider"' in resp.text
+    assert 'value="3"' in resp.text
+    assert "Balanced" in resp.text
+
+
+def test_set_caution_level(client):
+    c, db_path = client
+    resp = c.post("/api/caution-level/1")
+    assert resp.status_code == 200
+    assert resp.json() == {"caution_level": 1, "label": "Very cautious", "message": "Caution level set to 1 (Very cautious)."}
+
+    conn = get_connection(db_path)
+    assert Ledger(conn).get_caution_level() == 1
+
+
+def test_set_caution_level_clamps_out_of_range_values(client):
+    c, _ = client
+    resp = c.post("/api/caution-level/99")
+    assert resp.status_code == 200
+    assert resp.json()["caution_level"] == 5
+
+    resp = c.post("/api/caution-level/0")
+    assert resp.json()["caution_level"] == 1
+
+
+def test_summary_reflects_current_caution_level(client):
+    c, _ = client
+    c.post("/api/caution-level/5")
+    resp = c.get("/api/summary")
+    data = resp.json()
+    assert data["caution_level"] == 5
+    assert data["caution_label"] == "Aggressive"

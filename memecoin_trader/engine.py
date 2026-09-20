@@ -2,6 +2,7 @@
 then watch open positions and sell when the exit strategy says so."""
 from __future__ import annotations
 
+import dataclasses
 import logging
 import sqlite3
 import time
@@ -9,7 +10,7 @@ from decimal import Decimal
 
 from memecoin_trader.analysis.entry_strategy import EntryContext, effective_score, evaluate_entry
 from memecoin_trader.analysis.exit_strategy import evaluate_exit
-from memecoin_trader.config import DB_PATH, MODEL_PATH, TWITTER_SESSION_PATH, Settings
+from memecoin_trader.config import DB_PATH, MODEL_PATH, TWITTER_SESSION_PATH, EntryConfig, Settings
 from memecoin_trader.execution.base import Executor
 from memecoin_trader.execution.paper_executor import PaperExecutor
 from memecoin_trader.market.dexscreener import DexScreenerClient
@@ -17,12 +18,42 @@ from memecoin_trader.market.rugcheck import RugCheckClient
 from memecoin_trader.ml.features import extract_features
 from memecoin_trader.ml.model import TradeQualityModel
 from memecoin_trader.portfolio.db import get_connection, init_db
-from memecoin_trader.portfolio.ledger import InsufficientCashError, Ledger
+from memecoin_trader.portfolio.ledger import CAUTION_LEVEL_LABELS, InsufficientCashError, Ledger
 from memecoin_trader.signals.base import SignalSource, SocialSignal
 from memecoin_trader.signals.mock_source import MockTwitterSource
 from memecoin_trader.signals.twitter_source import TwitterAPISource
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_CAUTION_LEVEL = 3
+
+# How much each caution level nudges buy frequency away from config.yaml's
+# own entry.mention_score_threshold / timing.token_cooldown_minutes
+# (level 3, "Balanced," changes nothing). Deliberately a small, bounded
+# range around the config baseline rather than something that could push
+# either value to an extreme -- this dial only ever adjusts how often the
+# bot buys, never the safety filters (rug checks, ML gate, position sizing)
+# that stay fixed regardless of where it's set.
+CAUTION_LEVEL_OFFSETS: dict[int, dict[str, float]] = {
+    1: {"mention_score_threshold": 10.0, "token_cooldown_minutes": 30.0},  # most cautious: fewer, higher-conviction buys
+    2: {"mention_score_threshold": 5.0, "token_cooldown_minutes": 15.0},
+    3: {"mention_score_threshold": 0.0, "token_cooldown_minutes": 0.0},  # matches config.yaml as-is
+    4: {"mention_score_threshold": -5.0, "token_cooldown_minutes": -15.0},
+    5: {"mention_score_threshold": -10.0, "token_cooldown_minutes": -30.0},  # least cautious: more, lower-bar buys
+}
+
+
+def apply_caution_level(entry: EntryConfig, token_cooldown_minutes: float, caution_level: int) -> tuple[EntryConfig, float]:
+    """Returns (entry config, token cooldown minutes) adjusted by the given
+    caution level, clamped to sane floors/ceilings regardless of the level
+    or the config baseline -- belt and suspenders against either landing on
+    a pathological value (e.g. a threshold of 0, or a cooldown of 0)."""
+    offsets = CAUTION_LEVEL_OFFSETS.get(caution_level, CAUTION_LEVEL_OFFSETS[DEFAULT_CAUTION_LEVEL])
+    threshold = entry.mention_score_threshold + offsets["mention_score_threshold"]
+    threshold = max(20.0, min(90.0, threshold))
+    cooldown = token_cooldown_minutes + offsets["token_cooldown_minutes"]
+    cooldown = max(5.0, cooldown)
+    return dataclasses.replace(entry, mention_score_threshold=threshold), cooldown
 
 
 def build_signal_source(settings: Settings, market_client: DexScreenerClient) -> SignalSource:
@@ -226,26 +257,33 @@ class TradingEngine:
             logger.exception("signal source poll failed")
             return
 
+        # Read fresh every poll (not cached at __init__) so a dashboard
+        # slider change takes effect on the very next poll, no restart
+        # needed — same immediacy as the online/offline toggle.
+        entry_config, token_cooldown_minutes = apply_caution_level(
+            self.settings.entry, self.settings.timing.token_cooldown_minutes, self.ledger.get_caution_level()
+        )
+
         for signal in signals:
             market = self.market.get_best_pair_for_token(self.settings.chain_id, signal.token_address)
             if market is not None:
                 self._last_prices[signal.token_address] = market.price_usd
 
             corroborating_sources = self._corroborating_source_count(signal)
-            score = effective_score(signal, corroborating_sources, self.settings.entry)
+            score = effective_score(signal, corroborating_sources, entry_config)
 
             # Only spend a rug-check call on candidates that already clear the
             # cheap, local hype-score bar — no point querying a third-party
             # API for a signal we'd reject anyway.
             rug_report = None
-            if market is not None and score >= self.settings.entry.mention_score_threshold:
+            if market is not None and score >= entry_config.mention_score_threshold:
                 rug_report = self.rug_client.get_risk_report(signal.token_address)
-                if rug_report is None and self.settings.entry.rug_check.enabled:
+                if rug_report is None and entry_config.rug_check.enabled:
                     logger.warning(
                         "rug check unavailable for %s (%s) — %s",
                         signal.symbol,
                         signal.token_address,
-                        "skipping buy (fail_closed)" if self.settings.entry.rug_check.fail_closed
+                        "skipping buy (fail_closed)" if entry_config.rug_check.fail_closed
                         else "proceeding without it (fail_closed=false)",
                     )
 
@@ -254,7 +292,7 @@ class TradingEngine:
             ml_confidence = None
             if (
                 features is not None
-                and self.settings.entry.ml.enabled
+                and entry_config.ml.enabled
                 and self.ml_model is not None
                 and self.ml_model.is_trained
             ):
@@ -264,15 +302,13 @@ class TradingEngine:
                 cash_usd=self.ledger.get_cash_usd(),
                 open_position_count=len(self.ledger.get_open_positions()),
                 already_holds_token=self.ledger.get_open_position_for_token(signal.token_address) is not None,
-                token_on_cooldown=self.ledger.is_token_on_cooldown(
-                    signal.token_address, self.settings.timing.token_cooldown_minutes
-                ),
+                token_on_cooldown=self.ledger.is_token_on_cooldown(signal.token_address, token_cooldown_minutes),
             )
             decision = evaluate_entry(
                 signal,
                 market,
                 ctx,
-                self.settings.entry,
+                entry_config,
                 rug_report=rug_report,
                 ml_confidence=ml_confidence,
                 corroborating_sources=corroborating_sources,

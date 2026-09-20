@@ -37,6 +37,7 @@ market data                                                            ▲
 | 4chan /biz/ signal | **On, works immediately, corroboration-only** — free, no key; capped low so it can never trigger a buy alone. See [4chan /biz/](#4chan-biz-free-no-key--corroboration-only-by-design) |
 | Rug-pull screening | **Real** — [RugCheck.xyz](https://rugcheck.xyz) checked before every buy (mint/freeze authority, LP lock, holder risk), plus liquidity/FDV and price-spike heuristics from DexScreener data |
 | Trade-quality ML model | **On by default, but a no-op until trained** — auto-trains itself on the bot's own closed-trade history once there's enough of it; see [Machine learning](#machine-learning) |
+| Caution level (buy frequency) | **Live-adjustable, 1-5, default 3 "Balanced"** — dashboard slider or CLI, only affects how often it buys, not safety filters; see [Caution level](#caution-level-buy-frequency-slider) |
 | Money | **Simulated** ("paper" mode) by default. A real Solana execution path exists (`--live`) but is off by default and hard-gated — see [Going live](#going-live) |
 
 ### Why the Twitter signal is simulated
@@ -369,6 +370,40 @@ research angles agree on is stronger evidence than either alone, so a
 signal too weak by itself can still clear the bar once corroborated. A
 single strong signal from one source still gets through on its own merits;
 this only ever helps a borderline case, never blocks anything.
+
+## Caution level (buy-frequency slider)
+
+A 5-position slider at the top of the dashboard (and a `caution` CLI
+command) that controls how often the bot opens new positions, without
+touching anything safety-related:
+
+| Level | Label | vs. config.yaml baseline |
+|---|---|---|
+| 1 | Very cautious | score threshold +10, re-buy cooldown +30 min |
+| 2 | Cautious | score threshold +5, re-buy cooldown +15 min |
+| 3 | Balanced (default) | unchanged — exactly what `config.yaml` says |
+| 4 | Active | score threshold -5, re-buy cooldown -15 min |
+| 5 | Aggressive | score threshold -10, re-buy cooldown -30 min |
+
+It only ever nudges `entry.mention_score_threshold` (how strong a hype
+signal has to be before it's considered) and `timing.token_cooldown_minutes`
+(how soon it'll re-buy a token it just sold) — both bounded so they can
+never land on an extreme regardless of level or config. Everything else
+— rug checks, liquidity/FDV filters, LP-lock and mint/freeze-authority
+checks, position sizing, stop-loss/take-profit, the ML confidence gate —
+stays exactly as configured no matter where the slider sits.
+
+Changes take effect on the very next signal poll, no restart needed,
+because the engine re-reads the stored level from the database on every
+poll. Set it from the dashboard slider, or from the command line:
+
+```powershell
+# Show the current level and all options
+python -m memecoin_trader.cli caution
+
+# Set it (1-5; out-of-range values are clamped)
+python -m memecoin_trader.cli caution 2
+```
 
 ## Machine learning
 

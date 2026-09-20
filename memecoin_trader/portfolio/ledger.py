@@ -15,6 +15,16 @@ from memecoin_trader.execution.base import FillResult
 from memecoin_trader.portfolio.models import PortfolioState, Position, Trade
 from memecoin_trader.signals.base import SocialSignal
 
+MIN_CAUTION_LEVEL = 1
+MAX_CAUTION_LEVEL = 5
+CAUTION_LEVEL_LABELS: dict[int, str] = {
+    1: "Very cautious",
+    2: "Cautious",
+    3: "Balanced",
+    4: "Active",
+    5: "Aggressive",
+}
+
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -81,6 +91,7 @@ class Ledger:
             starting_balance_usd=Decimal(row["starting_balance_usd"]),
             updated_at=_parse_dt(row["updated_at"]),
             trading_enabled=bool(row["trading_enabled"]),
+            caution_level=row["caution_level"],
         )
 
     def get_cash_usd(self) -> Decimal:
@@ -97,6 +108,24 @@ class Ledger:
             "UPDATE portfolio_state SET trading_enabled = ?, updated_at = ? WHERE id = 1",
             (1 if enabled else 0, _now_iso()),
         )
+
+    def get_caution_level(self) -> int:
+        return self.get_portfolio_state().caution_level
+
+    def set_caution_level(self, level: int) -> int:
+        """Set by the dashboard's caution slider (and the matching CLI
+        command). Clamped to [MIN_CAUTION_LEVEL, MAX_CAUTION_LEVEL] rather
+        than rejected outright, so a stray out-of-range value from a client
+        just lands at the nearest valid level instead of erroring. See
+        engine.CAUTION_LEVEL_OFFSETS for what each level actually does —
+        the ledger just persists the number, it doesn't interpret it.
+        Returns the level actually stored (post-clamp)."""
+        level = max(MIN_CAUTION_LEVEL, min(MAX_CAUTION_LEVEL, level))
+        self._conn.execute(
+            "UPDATE portfolio_state SET caution_level = ?, updated_at = ? WHERE id = 1",
+            (level, _now_iso()),
+        )
+        return level
 
     # ------------------------------------------------------------ positions
 

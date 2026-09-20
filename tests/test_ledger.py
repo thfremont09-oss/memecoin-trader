@@ -253,3 +253,22 @@ def test_performance_by_source_sums_partial_sells_into_one_position(ledger):
     rows = ledger.get_performance_by_source()
     assert len(rows) == 1
     assert rows[0]["closed_trades"] == 1  # one position, even though it took two sells to close
+
+
+def test_caution_level_defaults_to_3(ledger):
+    assert ledger.get_caution_level() == 3
+
+
+def test_set_caution_level_round_trips(ledger):
+    assert ledger.set_caution_level(1) == 1
+    assert ledger.get_caution_level() == 1
+
+
+def test_set_caution_level_clamps_above_max(ledger):
+    assert ledger.set_caution_level(99) == 5
+    assert ledger.get_caution_level() == 5
+
+
+def test_set_caution_level_clamps_below_min(ledger):
+    assert ledger.set_caution_level(-3) == 1
+    assert ledger.get_caution_level() == 1

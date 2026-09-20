@@ -5,7 +5,7 @@ from dataclasses import replace
 from decimal import Decimal
 
 from memecoin_trader.config import load_settings
-from memecoin_trader.engine import TradingEngine
+from memecoin_trader.engine import TradingEngine, apply_caution_level
 from memecoin_trader.execution.paper_executor import PaperExecutor
 from tests.conftest import make_pair, make_rug_report, make_signal
 
@@ -323,3 +323,59 @@ def test_ml_retrain_is_a_noop_without_new_closed_trades(conn):
     )
     engine._maybe_retrain_ml_model()
     assert engine.ml_model is None  # nowhere near min_training_trades
+
+
+def test_apply_caution_level_default_matches_config_baseline():
+    settings = load_settings()
+    entry, cooldown = apply_caution_level(settings.entry, settings.timing.token_cooldown_minutes, 3)
+    assert entry.mention_score_threshold == settings.entry.mention_score_threshold
+    assert cooldown == settings.timing.token_cooldown_minutes
+
+
+def test_apply_caution_level_more_cautious_raises_threshold_and_cooldown():
+    settings = load_settings()
+    entry, cooldown = apply_caution_level(settings.entry, settings.timing.token_cooldown_minutes, 1)
+    assert entry.mention_score_threshold > settings.entry.mention_score_threshold
+    assert cooldown > settings.timing.token_cooldown_minutes
+
+
+def test_apply_caution_level_less_cautious_lowers_threshold_and_cooldown():
+    settings = load_settings()
+    entry, cooldown = apply_caution_level(settings.entry, settings.timing.token_cooldown_minutes, 5)
+    assert entry.mention_score_threshold < settings.entry.mention_score_threshold
+    assert cooldown < settings.timing.token_cooldown_minutes
+
+
+def test_apply_caution_level_clamps_extreme_baselines():
+    extreme = replace(load_settings().entry, mention_score_threshold=95.0)
+    entry, _ = apply_caution_level(extreme, 5.0, 1)  # +10 offset would push this to 105
+    assert entry.mention_score_threshold <= 90.0
+
+    tiny_cooldown_entry, cooldown = apply_caution_level(load_settings().entry, 10.0, 5)  # -30 offset would go negative
+    assert cooldown >= 5.0
+
+
+def test_unknown_caution_level_falls_back_to_default():
+    settings = load_settings()
+    entry, cooldown = apply_caution_level(settings.entry, settings.timing.token_cooldown_minutes, 999)
+    assert entry.mention_score_threshold == settings.entry.mention_score_threshold
+    assert cooldown == settings.timing.token_cooldown_minutes
+
+
+def test_caution_level_changes_whether_a_borderline_signal_gets_bought(conn):
+    engine, signal_source, market = build_engine(conn)
+    token = "TOKENEEEE111111111111111111111111111111111"
+    market.pairs[token] = make_pair(token_address=token)
+
+    # score 50 clears caution level 5's lowered threshold (config baseline
+    # 55 minus a 10-point offset = 45) but not level 3's baseline (55) or
+    # level 1's raised threshold (65).
+    signal_source.queue = [make_signal(token_address=token, score=50)]
+    engine.ledger.set_caution_level(3)
+    engine._poll_signals()
+    assert engine.ledger.get_open_positions() == []
+
+    signal_source.queue = [make_signal(token_address=token, score=50)]
+    engine.ledger.set_caution_level(5)
+    engine._poll_signals()
+    assert len(engine.ledger.get_open_positions()) == 1

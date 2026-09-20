@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
-from memecoin_trader.portfolio.ledger import Ledger
+from memecoin_trader.portfolio.ledger import CAUTION_LEVEL_LABELS, Ledger
 
 
 def _mark_price(ledger: Ledger, token_address: str, fallback: Decimal) -> Decimal:
@@ -65,6 +65,8 @@ def build_summary(ledger: Ledger) -> dict:
 
     return {
         "trading_enabled": state.trading_enabled,
+        "caution_level": state.caution_level,
+        "caution_label": CAUTION_LEVEL_LABELS.get(state.caution_level, str(state.caution_level)),
         "starting_balance_usd": float(state.starting_balance_usd),
         "cash_usd": float(state.cash_usd),
         "positions_value_usd": float(positions_value),

@@ -17,7 +17,8 @@ CREATE TABLE IF NOT EXISTS portfolio_state (
     realized_pnl_usd TEXT NOT NULL,
     starting_balance_usd TEXT NOT NULL,
     updated_at TEXT NOT NULL,
-    trading_enabled INTEGER NOT NULL DEFAULT 1
+    trading_enabled INTEGER NOT NULL DEFAULT 1,
+    caution_level INTEGER NOT NULL DEFAULT 3
 );
 
 CREATE TABLE IF NOT EXISTS positions (
@@ -119,13 +120,18 @@ def init_db(conn: sqlite3.Connection, starting_balance_usd: Decimal) -> None:
     if not _column_exists(conn, "portfolio_state", "trading_enabled"):
         conn.execute("ALTER TABLE portfolio_state ADD COLUMN trading_enabled INTEGER NOT NULL DEFAULT 1")
 
+    # Migration for DBs created before the caution-level slider existed.
+    if not _column_exists(conn, "portfolio_state", "caution_level"):
+        conn.execute("ALTER TABLE portfolio_state ADD COLUMN caution_level INTEGER NOT NULL DEFAULT 3")
+
     row = conn.execute("SELECT 1 FROM portfolio_state WHERE id = 1").fetchone()
     if row is None:
         from datetime import datetime, timezone
 
         conn.execute(
-            "INSERT INTO portfolio_state (id, cash_usd, realized_pnl_usd, starting_balance_usd, updated_at, trading_enabled) "
-            "VALUES (1, ?, '0', ?, ?, 1)",
+            "INSERT INTO portfolio_state "
+            "(id, cash_usd, realized_pnl_usd, starting_balance_usd, updated_at, trading_enabled, caution_level) "
+            "VALUES (1, ?, '0', ?, ?, 1, 3)",
             (str(starting_balance_usd), str(starting_balance_usd), datetime.now(timezone.utc).isoformat()),
         )
 

@@ -250,6 +250,27 @@ def cmd_online(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_caution(args: argparse.Namespace) -> int:
+    from memecoin_trader.portfolio.ledger import CAUTION_LEVEL_LABELS
+
+    settings = load_settings()
+    conn = get_connection(DB_PATH)
+    init_db(conn, Decimal(str(settings.starting_balance_usd)))
+    ledger = Ledger(conn)
+
+    if args.level is None:
+        level = ledger.get_caution_level()
+        print(f"Current caution level: {level} ({CAUTION_LEVEL_LABELS.get(level, level)})")
+        print("Levels: " + ", ".join(f"{lvl}={label}" for lvl, label in CAUTION_LEVEL_LABELS.items()))
+        return 0
+
+    stored = ledger.set_caution_level(args.level)
+    print(f"Caution level set to {stored} ({CAUTION_LEVEL_LABELS.get(stored, stored)}).")
+    if stored != args.level:
+        print(f"(clamped from {args.level} — valid range is 1-5)")
+    return 0
+
+
 def cmd_reset(args: argparse.Namespace) -> int:
     settings = load_settings()
     if not args.yes:
@@ -307,6 +328,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_online = sub.add_parser("online", help="let the engine open new positions again")
     p_online.set_defaults(func=cmd_online)
+
+    p_caution = sub.add_parser(
+        "caution", help="show or set the caution level (1-5) controlling how often the bot buys"
+    )
+    p_caution.add_argument(
+        "level", type=int, nargs="?", default=None, help="1 (very cautious) to 5 (aggressive); omit to just show the current level"
+    )
+    p_caution.set_defaults(func=cmd_caution)
 
     p_train = sub.add_parser(
         "train", help="train the ML trade-quality model from the bot's own closed-trade history"

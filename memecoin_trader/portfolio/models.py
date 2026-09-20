@@ -58,3 +58,4 @@ class PortfolioState:
     starting_balance_usd: Decimal
     updated_at: datetime
     trading_enabled: bool
+    caution_level: int

@@ -83,6 +83,24 @@
   th { color: var(--muted); font-weight: 500; }
   .empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
   canvas { max-height: 320px; }
+  .caution-panel { padding-bottom: 12px; }
+  .caution-slider {
+    -webkit-appearance: none; appearance: none; width: 100%; height: 6px;
+    border-radius: 3px; margin: 8px 0 6px 0; cursor: pointer;
+    background: linear-gradient(to right, var(--green), var(--accent) 50%, var(--red));
+  }
+  .caution-slider::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; width: 20px; height: 20px; border-radius: 50%;
+    background: var(--text); border: 3px solid var(--bg); cursor: pointer;
+  }
+  .caution-slider::-moz-range-thumb {
+    width: 20px; height: 20px; border-radius: 50%;
+    background: var(--text); border: 3px solid var(--bg); cursor: pointer;
+  }
+  .caution-ticks {
+    display: flex; justify-content: space-between; color: var(--muted); font-size: 11px;
+  }
+  .caution-note { color: var(--muted); font-size: 12px; margin-top: 10px; }
 </style>
 </head>
 <body>
@@ -100,6 +118,30 @@
     </div>
   </div>
   <div class="subtitle">Simulated portfolio starting from ${{ "%.2f"|format(summary.starting_balance_usd) }} · auto-refreshes every 5s</div>
+
+  <div class="panel caution-panel">
+    <div class="chart-header">
+      <h2>Caution level</h2>
+      <span id="cautionLabel" class="change">{{ summary.caution_label }}</span>
+    </div>
+    <input
+      type="range" id="cautionSlider" class="caution-slider"
+      min="1" max="5" step="1" value="{{ summary.caution_level }}"
+    >
+    <div class="caution-ticks">
+      <span>Very cautious</span>
+      <span>Cautious</span>
+      <span>Balanced</span>
+      <span>Active</span>
+      <span>Aggressive</span>
+    </div>
+    <div class="caution-note">
+      Controls how often the bot buys new coins — the hype-score bar it
+      requires and how soon it'll re-buy a token it just sold. Rug checks,
+      position sizing, and every other safety filter stay fixed no matter
+      where this is set.
+    </div>
+  </div>
 
   <div class="cards">
     <div class="card">
@@ -378,6 +420,30 @@
       }
       postAction('/api/sell/' + encodeURIComponent(token), btn, 'Selling...', 'Sell');
     });
+  });
+
+  // 'change' (fires once on release), not 'input' (fires on every pixel of
+  // drag) -- one request per adjustment, not a flood while dragging.
+  const cautionSlider = document.getElementById('cautionSlider');
+  const cautionLabel = document.getElementById('cautionLabel');
+  cautionSlider.addEventListener('change', async () => {
+    const level = cautionSlider.value;
+    const previousLabel = cautionLabel.textContent;
+    cautionLabel.textContent = 'Saving...';
+    try {
+      const resp = await fetch('/api/caution-level/' + encodeURIComponent(level), { method: 'POST' });
+      if (resp.status === 401) {
+        alert('Unauthorized — refresh the page and log in again.');
+        cautionLabel.textContent = previousLabel;
+        return;
+      }
+      const data = await resp.json();
+      cautionLabel.textContent = data.label;
+      cautionSlider.value = data.caution_level;  // reflects any server-side clamping
+    } catch (err) {
+      alert('Request failed: ' + err);
+      cautionLabel.textContent = previousLabel;
+    }
   });
 </script>
 </body>

@@ -19,7 +19,7 @@ from starlette.requests import Request
 
 from memecoin_trader.config import DB_PATH, load_settings
 from memecoin_trader.portfolio.db import get_connection, init_db
-from memecoin_trader.portfolio.ledger import Ledger
+from memecoin_trader.portfolio.ledger import CAUTION_LEVEL_LABELS, Ledger
 from memecoin_trader.reporting import build_summary
 
 app = FastAPI(title="Memecoin Trader Dashboard")
@@ -121,3 +121,16 @@ def api_sell_one(token_address: str, _auth: None = Depends(require_auth)):
     sold = engine.liquidate_position(token_address)
     message = "Sold." if sold else "Couldn't sell — no market data available right now. Try again shortly."
     return {"sold": sold, "message": message}
+
+
+@app.post("/api/caution-level/{level}")
+def api_set_caution_level(level: int, _auth: None = Depends(require_auth)):
+    """Sets the caution-level slider. Takes effect on the engine's very next
+    signal poll (it reads this fresh every poll, no restart needed) — same
+    immediacy as the online/offline toggle."""
+    stored = _ledger().set_caution_level(level)
+    return {
+        "caution_level": stored,
+        "label": CAUTION_LEVEL_LABELS.get(stored, str(stored)),
+        "message": f"Caution level set to {stored} ({CAUTION_LEVEL_LABELS.get(stored, stored)}).",
+    }
