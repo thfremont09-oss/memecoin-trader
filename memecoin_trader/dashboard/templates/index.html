@@ -71,12 +71,18 @@
     background: var(--panel); border: 1px solid var(--border); border-radius: 10px;
     padding: 16px; margin-bottom: 24px;
   }
-  .panel h2 { font-size: 14px; margin: 0 0 12px 0; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .panel h2 { font-size: 14px; margin: 0; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  .chart-header {
+    display: flex; align-items: baseline; justify-content: space-between;
+    flex-wrap: wrap; gap: 8px; margin-bottom: 12px;
+  }
+  .chart-header .change { font-size: 13px; font-weight: 600; }
+  .chart-header .baseline-note { color: var(--muted); font-weight: 400; font-size: 12px; margin-left: 6px; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; }
   th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); }
   th { color: var(--muted); font-weight: 500; }
   .empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
-  canvas { max-height: 260px; }
+  canvas { max-height: 320px; }
 </style>
 </head>
 <body>
@@ -123,7 +129,13 @@
   </div>
 
   <div class="panel">
-    <h2>Equity curve</h2>
+    <div class="chart-header">
+      <h2>Equity curve</h2>
+      <span class="change {{ 'positive' if summary.total_return_usd >= 0 else 'negative' }}">
+        {{ "%+.2f"|format(summary.total_return_usd) }} ({{ "%+.1f"|format(summary.total_return_pct) }}%) since start
+        <span class="baseline-note">· baseline ${{ "%.2f"|format(summary.starting_balance_usd) }}</span>
+      </span>
+    </div>
     <canvas id="equityChart"></canvas>
   </div>
 
@@ -179,30 +191,130 @@
 
 <script>
   const equityCurve = {{ summary.equity_curve|tojson }};
+  const startingBalance = {{ summary.starting_balance_usd }};
+  const isUp = {{ 'true' if summary.total_return_usd >= 0 else 'false' }};
+  const lineColor = isUp ? '#3ecf8e' : '#ef5b5b';
+  const fillColorTop = isUp ? 'rgba(62,207,142,0.20)' : 'rgba(239,91,91,0.20)';
+  const gridColor = '#1a1e27';
+  const mutedColor = '#8b93a3';
+
+  function equityGradient(chartCtx) {
+    const area = chartCtx.chart.chartArea;
+    if (!area) return fillColorTop;  // first layout pass, before chartArea exists
+    const gradient = chartCtx.chart.ctx.createLinearGradient(0, area.top, 0, area.bottom);
+    gradient.addColorStop(0, fillColorTop);
+    gradient.addColorStop(1, 'rgba(0,0,0,0)');
+    return gradient;
+  }
+
+  function formatUsd(v) {
+    return '$' + Number(v).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  // Chart.js draws points at radius 0 for a clean line, so the built-in
+  // "intersect" hover (cursor has to land exactly on a point) is nearly
+  // impossible to trigger -- interaction.mode 'index' + intersect:false
+  // below fixes that by tracking the nearest X position instead, the same
+  // way a real trading chart's crosshair works.
+  const crosshairPlugin = {
+    id: 'crosshair',
+    afterDatasetsDraw(chart) {
+      const active = chart.getActiveElements();
+      if (!active.length) return;
+      const { ctx, chartArea } = chart;
+      const x = active[0].element.x;
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(x, chartArea.top);
+      ctx.lineTo(x, chartArea.bottom);
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = 'rgba(230,232,236,0.35)';
+      ctx.setLineDash([3, 3]);
+      ctx.stroke();
+      ctx.restore();
+    },
+  };
+
+  // A dashed reference line at the starting balance, so it's obvious at a
+  // glance whether the current curve is above or below where it began --
+  // the same "since open" reference every stock chart shows.
+  const baselinePlugin = {
+    id: 'baseline',
+    afterDatasetsDraw(chart) {
+      const { ctx, chartArea, scales } = chart;
+      const y = scales.y.getPixelForValue(startingBalance);
+      if (y < chartArea.top || y > chartArea.bottom) return;
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(chartArea.left, y);
+      ctx.lineTo(chartArea.right, y);
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = 'rgba(139,147,163,0.4)';
+      ctx.setLineDash([2, 4]);
+      ctx.stroke();
+      ctx.restore();
+    },
+  };
+
   const ctx = document.getElementById('equityChart');
   new Chart(ctx, {
     type: 'line',
     data: {
       labels: equityCurve.map(p => p.recorded_at.slice(5, 16).replace('T', ' ')),
       datasets: [{
-        label: 'Equity (USD)',
+        label: 'Equity',
         data: equityCurve.map(p => p.equity_usd),
-        borderColor: '#7c8cff',
-        backgroundColor: 'rgba(124,140,255,0.1)',
+        borderColor: lineColor,
+        backgroundColor: equityGradient,
+        borderWidth: 2,
         fill: true,
-        tension: 0.2,
+        tension: 0.15,
         pointRadius: 0,
+        pointHoverRadius: 4,
+        pointHitRadius: 20,
+        pointBackgroundColor: lineColor,
+        pointBorderColor: '#14171f',
+        pointBorderWidth: 2,
       }]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
+      // Hover/tooltip snap to the nearest point along X regardless of how
+      // close the cursor is vertically to the line -- this is what makes
+      // the hover forgiving instead of finicky.
+      interaction: { mode: 'index', intersect: false, axis: 'x' },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          displayColors: false,
+          backgroundColor: '#1c2029',
+          borderColor: '#262b36',
+          borderWidth: 1,
+          titleColor: mutedColor,
+          bodyColor: '#e6e8ec',
+          bodyFont: { weight: '600' },
+          padding: 10,
+          cornerRadius: 6,
+          callbacks: {
+            label: (item) => {
+              const v = item.parsed.y;
+              const pct = ((v - startingBalance) / startingBalance) * 100;
+              const sign = pct >= 0 ? '+' : '';
+              return `${formatUsd(v)}  (${sign}${pct.toFixed(1)}%)`;
+            },
+          },
+        },
+      },
       scales: {
-        x: { ticks: { color: '#8b93a3', maxTicksLimit: 8 }, grid: { color: '#262b36' } },
-        y: { ticks: { color: '#8b93a3' }, grid: { color: '#262b36' } },
-      }
-    }
+        x: { ticks: { color: mutedColor, maxTicksLimit: 8 }, grid: { color: gridColor, drawTicks: false } },
+        y: {
+          ticks: { color: mutedColor, callback: (v) => '$' + Number(v).toLocaleString() },
+          grid: { color: gridColor, drawTicks: false },
+        },
+      },
+    },
+    plugins: [crosshairPlugin, baselinePlugin],
   });
 
   setTimeout(() => location.reload(), 5000);
