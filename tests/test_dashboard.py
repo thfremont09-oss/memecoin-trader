@@ -181,7 +181,7 @@ def test_summary_reflects_current_caution_level(client):
 def test_index_renders_equity_range_buttons_defaulting_to_all(client):
     c, _ = client
     resp = c.get("/")
-    for r in ["5M", "1H", "1D", "1W", "1M", "YTD", "ALL"]:
+    for r in ["1MIN", "5M", "1H", "1D", "1W", "1M", "YTD", "ALL"]:
         assert f">{r}<" in resp.text
     assert 'data-range="all"' in resp.text
 

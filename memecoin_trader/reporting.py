@@ -8,8 +8,9 @@ from memecoin_trader.portfolio.ledger import CAUTION_LEVEL_LABELS, Ledger
 
 # The dashboard's equity-curve zoom presets, ordered zoomed-in to zoomed-out.
 # "ytd"/"all" have no fixed timedelta -- see _range_since_iso().
-EQUITY_CURVE_RANGES: list[str] = ["5m", "1h", "1d", "1w", "1m", "ytd", "all"]
+EQUITY_CURVE_RANGES: list[str] = ["1min", "5m", "1h", "1d", "1w", "1m", "ytd", "all"]
 _EQUITY_CURVE_DELTAS: dict[str, timedelta] = {
+    "1min": timedelta(minutes=1),
     "5m": timedelta(minutes=5),
     "1h": timedelta(hours=1),
     "1d": timedelta(days=1),

@@ -4,7 +4,7 @@ from memecoin_trader.reporting import EQUITY_CURVE_RANGES, _range_since_iso, bui
 
 
 def test_equity_curve_ranges_lists_every_button_key():
-    assert EQUITY_CURVE_RANGES == ["5m", "1h", "1d", "1w", "1m", "ytd", "all"]
+    assert EQUITY_CURVE_RANGES == ["1min", "5m", "1h", "1d", "1w", "1m", "ytd", "all"]
 
 
 def test_range_since_iso_all_has_no_cutoff():
@@ -27,6 +27,12 @@ def test_range_since_iso_1h_is_roughly_one_hour_ago():
     since = datetime.fromisoformat(_range_since_iso("1h"))
     now = datetime.now(timezone.utc)
     assert timedelta(minutes=59) < (now - since) < timedelta(minutes=61)
+
+
+def test_range_since_iso_1min_is_roughly_one_minute_ago():
+    since = datetime.fromisoformat(_range_since_iso("1min"))
+    now = datetime.now(timezone.utc)
+    assert timedelta(seconds=55) < (now - since) < timedelta(seconds=65)
 
 
 def test_build_summary_defaults_to_all_range(ledger):

@@ -109,6 +109,19 @@
   }
   .range-btn:hover { border-color: var(--accent); color: var(--text); }
   .range-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .refresh-control { display: inline-flex; align-items: center; gap: 6px; margin-left: 4px; }
+  .refresh-slider {
+    -webkit-appearance: none; appearance: none; width: 90px; height: 4px;
+    border-radius: 2px; cursor: pointer; background: var(--border); vertical-align: middle;
+  }
+  .refresh-slider::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; width: 12px; height: 12px; border-radius: 50%;
+    background: var(--accent); cursor: pointer;
+  }
+  .refresh-slider::-moz-range-thumb {
+    width: 12px; height: 12px; border-radius: 50%; border: none;
+    background: var(--accent); cursor: pointer;
+  }
 </style>
 </head>
 <body>
@@ -125,7 +138,13 @@
       <button id="onlineBtn" class="btn-success" onclick="goOnline()" {{ 'disabled' if summary.trading_enabled else '' }}>Go online</button>
     </div>
   </div>
-  <div class="subtitle">Simulated portfolio starting from ${{ "%.2f"|format(summary.starting_balance_usd) }} · auto-refreshes every 5s</div>
+  <div class="subtitle">
+    Simulated portfolio starting from ${{ "%.2f"|format(summary.starting_balance_usd) }} ·
+    <span class="refresh-control">
+      <span id="refreshLabel">refreshes every 5s</span>
+      <input type="range" id="refreshIntervalSlider" class="refresh-slider" min="1" max="60" step="1" value="5">
+    </span>
+  </div>
 
   <div class="panel caution-panel">
     <div class="chart-header">
@@ -187,7 +206,7 @@
       </span>
     </div>
     <div class="range-row" id="rangeRow">
-      {% for r in ["5m", "1h", "1d", "1w", "1m", "ytd", "all"] %}
+      {% for r in ["1min", "5m", "1h", "1d", "1w", "1m", "ytd", "all"] %}
       <button
         class="range-btn {{ 'active' if summary.equity_range == r else '' }}"
         data-range="{{ r }}"
@@ -278,6 +297,8 @@
   const startingBalance = {{ summary.starting_balance_usd }};
   let isUp = {{ 'true' if summary.total_return_usd >= 0 else 'false' }};
   let currentRange = {{ summary.equity_range|tojson }};
+  let lastEquityForConfetti = {{ summary.equity_usd }};
+  let lastConfettiAt = 0;
   const gridColor = '#1a1e27';
   const mutedColor = '#8b93a3';
 
@@ -598,6 +619,71 @@
     });
   }
 
+  // A minimal, dependency-free confetti burst -- no CDN library needed for
+  // a couple of seconds of celebration. Fires as a full-viewport overlay
+  // canvas that removes itself when the animation ends.
+  function fireConfetti() {
+    const canvas = document.createElement('canvas');
+    canvas.style.cssText = 'position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;z-index:9999;';
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    document.body.appendChild(canvas);
+    const ctx = canvas.getContext('2d');
+
+    const colors = ['#3ecf8e', '#7c8cff', '#ef5b5b', '#e0a95a', '#6fb3ff'];
+    const particles = Array.from({ length: 150 }, () => ({
+      x: Math.random() * canvas.width,
+      y: -20 - Math.random() * canvas.height * 0.3,
+      vx: (Math.random() - 0.5) * 4,
+      vy: 2 + Math.random() * 3,
+      size: 4 + Math.random() * 4,
+      color: colors[Math.floor(Math.random() * colors.length)],
+      rotation: Math.random() * 360,
+      rotationSpeed: (Math.random() - 0.5) * 10,
+    }));
+
+    const start = performance.now();
+    const duration = 2800;
+
+    function frame(now) {
+      const elapsed = now - start;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      particles.forEach((p) => {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.05;
+        p.rotation += p.rotationSpeed;
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate((p.rotation * Math.PI) / 180);
+        ctx.fillStyle = p.color;
+        ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.6);
+        ctx.restore();
+      });
+      if (elapsed < duration) {
+        requestAnimationFrame(frame);
+      } else {
+        canvas.remove();
+      }
+    }
+    requestAnimationFrame(frame);
+  }
+
+  // Any single refresh where equity popped by more than 1% gets a little
+  // celebration -- cooldown keeps a sustained rally from spamming bursts
+  // back-to-back every tick.
+  const CONFETTI_COOLDOWN_MS = 15000;
+  function maybeCelebrate(equityUsd) {
+    if (lastEquityForConfetti > 0) {
+      const pctJump = ((equityUsd - lastEquityForConfetti) / lastEquityForConfetti) * 100;
+      if (pctJump > 1 && Date.now() - lastConfettiAt > CONFETTI_COOLDOWN_MS) {
+        fireConfetti();
+        lastConfettiAt = Date.now();
+      }
+    }
+    lastEquityForConfetti = equityUsd;
+  }
+
   async function refreshDashboard() {
     try {
       const resp = await fetch('/api/summary?range=' + encodeURIComponent(currentRange));
@@ -611,16 +697,44 @@
       renderCaution(s);
       renderRangeButtons(s);
       updateChart(s);
+      maybeCelebrate(s.equity_usd);
     } catch (err) {
       // Network hiccup -- silently retry on the next interval rather than
       // interrupting the user with an alert every 5s.
     }
   }
 
-  setInterval(refreshDashboard, 5000);
+  // Self-rescheduling instead of setInterval, so dragging the refresh-speed
+  // dial takes effect on the very next tick without clearing/recreating a
+  // timer -- refreshIntervalMs is read fresh each time this fires.
+  let refreshIntervalMs = Math.max(1, parseInt(localStorage.getItem('refreshIntervalSeconds') || '5', 10)) * 1000;
+  function scheduleNextRefresh() {
+    setTimeout(async () => {
+      await refreshDashboard();
+      scheduleNextRefresh();
+    }, refreshIntervalMs);
+  }
+  scheduleNextRefresh();
 
-  // Clicking a zoom preset (5M/1H/1D/1W/1M/YTD/ALL) re-fetches immediately
-  // instead of waiting for the next 5s tick, so the chart responds right away.
+  const refreshSlider = document.getElementById('refreshIntervalSlider');
+  const refreshLabel = document.getElementById('refreshLabel');
+  refreshSlider.value = String(refreshIntervalMs / 1000);
+  refreshLabel.textContent = `refreshes every ${refreshIntervalMs / 1000}s`;
+  refreshSlider.addEventListener('input', () => {
+    const seconds = parseInt(refreshSlider.value, 10);
+    refreshIntervalMs = seconds * 1000;
+    refreshLabel.textContent = `refreshes every ${seconds}s`;
+    try {
+      localStorage.setItem('refreshIntervalSeconds', String(seconds));
+    } catch (err) {
+      // Private-browsing / blocked storage -- the slider still works for
+      // this session, it just won't be remembered next time.
+    }
+  });
+
+  // Clicking a zoom preset (1MIN/5M/1H/1D/1W/1M/YTD/ALL) re-fetches
+  // immediately instead of waiting for the next refresh tick, so the chart
+  // responds right away.
   document.querySelectorAll('.range-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
       currentRange = btn.dataset.range;

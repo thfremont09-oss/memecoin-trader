@@ -40,7 +40,9 @@ market data                                                            ▲
 | Rug-pull screening | **Real** — [RugCheck.xyz](https://rugcheck.xyz) checked before every buy (mint/freeze authority, LP lock, holder risk), plus liquidity/FDV and price-spike heuristics from DexScreener data |
 | Trade-quality ML model | **On by default, but a no-op until trained** — auto-trains itself on the bot's own closed-trade history once there's enough of it; see [Machine learning](#machine-learning) |
 | Caution level (buy frequency) | **Live-adjustable, 1-5, default 3 "Balanced"** — dashboard slider or CLI, only affects how often it buys, not safety filters; see [Caution level](#caution-level-buy-frequency-slider) |
-| Equity chart zoom | **5M / 1H / 1D / 1W / 1M / YTD / ALL presets** on the dashboard, server-side filtered and downsampled; see [Equity curve zoom](#equity-curve-zoom-5m--1h--1d--1w--1m--ytd--all) |
+| Equity chart zoom | **1MIN / 5M / 1H / 1D / 1W / 1M / YTD / ALL presets** on the dashboard, server-side filtered and downsampled; see [Equity curve zoom](#equity-curve-zoom-1min--5m--1h--1d--1w--1m--ytd--all) |
+| Dashboard refresh speed | **Adjustable 1-60s dial**, client-side only; see [Refresh speed dial](#refresh-speed-dial) |
+| Confetti | **Fires on any >1% equity pop** in a single refresh; see [Confetti on a pop](#confetti-on-a-pop) |
 | Money | **Simulated** ("paper" mode) by default. A real Solana execution path exists (`--live`) but is off by default and hard-gated — see [Going live](#going-live) |
 
 ### Why the Twitter signal is simulated
@@ -403,16 +405,16 @@ signal too weak by itself can still clear the bar once corroborated. A
 single strong signal from one source still gets through on its own merits;
 this only ever helps a borderline case, never blocks anything.
 
-## Equity curve zoom (5M / 1H / 1D / 1W / 1M / YTD / ALL)
+## Equity curve zoom (1MIN / 5M / 1H / 1D / 1W / 1M / YTD / ALL)
 
 The dashboard's equity chart has a row of zoom presets above it, the same
 idea as a stock app's chart range buttons. Clicking one re-fetches just
 that window and redraws the chart immediately (not waiting for the next
-5s auto-refresh); the auto-refresh then keeps redrawing at whatever
-range is currently selected as new snapshots come in.
+refresh tick); the auto-refresh then keeps redrawing at whatever range
+is currently selected as new snapshots come in.
 
 Every preset is served by the same `/api/summary?range=<key>` endpoint
-(`5m`, `1h`, `1d`, `1w`, `1m`, `ytd`, `all`), which filters
+(`1min`, `5m`, `1h`, `1d`, `1w`, `1m`, `ytd`, `all`), which filters
 `equity_history` by `recorded_at` server-side rather than shipping the
 whole table to the browser and filtering there. A window with more than
 500 snapshots in it (e.g. a month at the default 5-second snapshot
@@ -421,6 +423,26 @@ recent point exact — so "1M" or "ALL" stays fast and the chart doesn't
 try to render hundreds of thousands of points. Defaults to `all` (today's
 full history) if you load the page or hit the API with no `range` at
 all, or with one it doesn't recognize.
+
+## Refresh speed dial
+
+Next to the subtitle at the top of the dashboard is a small slider (1-60s)
+that controls how often the page re-polls `/api/summary` — was a fixed 5s
+for everyone, now yours to set. It's a client-side-only preference (saved
+in the browser's `localStorage`, not the database), so it's per-device and
+takes effect on the very next tick with no page reload. If browser storage
+is unavailable (private browsing, blocked site data), the slider still
+works for that session, it just won't be remembered next time.
+
+## Confetti on a pop
+
+Any single refresh where total equity jumps by more than 1% since the
+previous one — a token you're holding just spiked — fires a two-second
+confetti burst over the page. It's a plain `<canvas>` overlay written by
+hand (no external library/CDN), so it works offline and needs nothing
+installed. A 15-second cooldown keeps a sustained rally from firing a new
+burst on every single tick; it can still fire again and again across a
+longer rally, just not back-to-back.
 
 ## Caution level (buy-frequency slider)
 
