@@ -65,6 +65,7 @@ def _row_to_position(row: sqlite3.Row) -> Position:
         signal_source=row["signal_source"] or "",
         signal_score=row["signal_score"] or 0.0,
         status=row["status"],
+        closed_at=_parse_dt(row["closed_at"]) if row["closed_at"] else None,
     )
 
 
@@ -170,6 +171,14 @@ class Ledger:
             "SELECT * FROM positions WHERE token_address = ? AND status = 'open' LIMIT 1",
             (token_address,),
         ).fetchone()
+        return _row_to_position(row) if row else None
+
+    def get_position_by_id(self, position_id: int) -> Position | None:
+        """Looks up a position regardless of status -- unlike
+        get_open_position_for_token, this is how the dashboard's per-position
+        detail view (open or already closed) finds the one the user clicked
+        on."""
+        row = self._conn.execute("SELECT * FROM positions WHERE id = ?", (position_id,)).fetchone()
         return _row_to_position(row) if row else None
 
     def is_token_on_cooldown(self, token_address: str, cooldown_minutes: float) -> bool:
@@ -421,6 +430,29 @@ class Ledger:
         ).fetchall()
         return [Decimal(r["price_usd"]) for r in rows]
 
+    def get_price_series_for_position(
+        self, token_address: str, start_iso: str, end_iso: str | None = None, max_points: int = 300
+    ) -> list[dict]:
+        """Price snapshots spanning one position's lifetime -- from its entry
+        to its exit (or now, if still open) -- for the dashboard's
+        per-position detail chart. Downsampled the same way the equity curve
+        is, so a long-lived position doesn't pull thousands of 5s snapshots
+        into one response."""
+        if end_iso is not None:
+            rows = self._conn.execute(
+                "SELECT price_usd, captured_at FROM price_snapshots "
+                "WHERE token_address = ? AND captured_at >= ? AND captured_at <= ? ORDER BY captured_at ASC",
+                (token_address, start_iso, end_iso),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT price_usd, captured_at FROM price_snapshots "
+                "WHERE token_address = ? AND captured_at >= ? ORDER BY captured_at ASC",
+                (token_address, start_iso),
+            ).fetchall()
+        rows = _downsample(rows, max_points)
+        return [{"captured_at": r["captured_at"], "price_usd": float(Decimal(r["price_usd"]))} for r in rows]
+
     # -------------------------------------------------------------- equity
 
     def record_equity_snapshot(self, positions_value_usd: Decimal) -> None:
@@ -476,6 +508,15 @@ class Ledger:
     def get_recent_trades(self, limit: int = 50) -> list[Trade]:
         rows = self._conn.execute(
             "SELECT * FROM trades ORDER BY executed_at DESC LIMIT ?", (limit,)
+        ).fetchall()
+        return [_row_to_trade(r) for r in rows]
+
+    def get_trades_for_position(self, position_id: int) -> list[Trade]:
+        """Every fill (the entry buy, any partial take-profit sells, the
+        final exit) that belongs to one position -- oldest first, for the
+        dashboard's per-position detail view."""
+        rows = self._conn.execute(
+            "SELECT * FROM trades WHERE position_id = ? ORDER BY executed_at ASC", (position_id,)
         ).fetchall()
         return [_row_to_trade(r) for r in rows]
 

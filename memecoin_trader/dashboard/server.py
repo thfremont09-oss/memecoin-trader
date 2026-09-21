@@ -20,7 +20,7 @@ from starlette.requests import Request
 from memecoin_trader.config import DB_PATH, load_settings
 from memecoin_trader.portfolio.db import get_connection, init_db
 from memecoin_trader.portfolio.ledger import CAUTION_LEVEL_LABELS, Ledger
-from memecoin_trader.reporting import build_summary
+from memecoin_trader.reporting import build_position_detail, build_summary
 
 app = FastAPI(title="Memecoin Trader Dashboard")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
@@ -67,6 +67,14 @@ def index(request: Request, range: str = "all", _auth: None = Depends(require_au
 @app.get("/api/summary")
 def api_summary(range: str = "all", _auth: None = Depends(require_auth)):
     return build_summary(_ledger(), equity_range=range)
+
+
+@app.get("/api/position/{position_id}")
+def api_position_detail(position_id: int, _auth: None = Depends(require_auth)):
+    detail = build_position_detail(_ledger(), position_id)
+    if detail is None:
+        raise HTTPException(status_code=404, detail="Position not found")
+    return detail
 
 
 @app.post("/api/offline")

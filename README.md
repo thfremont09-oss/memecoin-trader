@@ -461,6 +461,20 @@ signal too weak by itself can still clear the bar once corroborated. A
 single strong signal from one source still gets through on its own merits;
 this only ever helps a borderline case, never blocks anything.
 
+## Per-position detail view
+
+Clicking a coin's symbol — in either the open-positions table or the recent
+trades table — opens a detail view for that specific position: not general
+information about the token, but its own journey since you bought it. It
+shows entry vs. current (or exit) price, quantity, cost basis, fees paid,
+realized/unrealized P&L, every fill against that position (the entry buy,
+any partial take-profit sells, the final exit), and a price chart spanning
+just that position's own lifetime — from the moment it was opened to now
+(or to when it closed). A trade row in the recent-trades table links back
+to the same position, so a closed position's story is just as easy to pull
+up as an open one's. Backed by `GET /api/position/{id}`
+(`memecoin_trader/reporting.py`'s `build_position_detail`).
+
 ## Equity curve zoom (1MIN / 5M / 1H / 1D / 1W / 1M / YTD / ALL)
 
 The dashboard's equity chart has a row of zoom presets above it, the same

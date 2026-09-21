@@ -83,6 +83,42 @@
   th { color: var(--muted); font-weight: 500; }
   .empty { color: var(--muted); font-size: 13px; padding: 8px 0; }
   canvas { max-height: 320px; }
+  .symbol-link {
+    background: none; border: none; padding: 0; margin: 0; cursor: pointer;
+    color: var(--accent); font-size: 13px; font-weight: 600; text-decoration: underline;
+    text-underline-offset: 2px; font-family: inherit;
+  }
+  .symbol-link:hover { color: var(--text); }
+  .modal-overlay {
+    position: fixed; inset: 0; z-index: 2000; background: rgba(6,7,10,0.72);
+    display: flex; align-items: flex-start; justify-content: center;
+    overflow-y: auto; padding: 40px 16px;
+  }
+  .modal {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+    padding: 20px; width: 100%; max-width: 640px;
+  }
+  .modal-header {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 12px; margin-bottom: 4px;
+  }
+  .modal-header h3 { margin: 0; font-size: 18px; }
+  .modal-subtitle { color: var(--muted); font-size: 12px; margin-bottom: 16px; }
+  .modal-close {
+    background: none; border: none; color: var(--muted); font-size: 20px;
+    line-height: 1; cursor: pointer; padding: 2px 6px; border-radius: 6px;
+  }
+  .modal-close:hover { color: var(--text); background: var(--border); }
+  .modal-stats {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 10px; margin-bottom: 16px;
+  }
+  .modal-stats .stat { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+  .modal-stats .stat .label { color: var(--muted); font-size: 11px; margin-bottom: 4px; }
+  .modal-stats .stat .value { font-size: 15px; font-weight: 600; }
+  .modal canvas { max-height: 220px; margin-bottom: 16px; }
+  .modal h4 { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 8px 0; }
+  .modal-loading, .modal-empty { color: var(--muted); font-size: 13px; padding: 20px 0; text-align: center; }
   .caution-panel { padding-bottom: 12px; }
   .caution-slider {
     -webkit-appearance: none; appearance: none; width: 100%; height: 6px;
@@ -265,7 +301,7 @@
       <tr><th>Symbol</th><th>Qty</th><th>Entry</th><th>Now</th><th>Value</th><th>P&amp;L</th><th>Opened</th><th>Source</th><th></th></tr>
       {% for p in summary.open_positions %}
       <tr>
-        <td>{{ p.symbol }}</td>
+        <td><button class="symbol-link" data-position-id="{{ p.id }}">{{ p.symbol }}</button></td>
         <td>{{ "%.4f"|format(p.quantity) }}</td>
         <td>${{ "%.6f"|format(p.entry_price_usd) }}</td>
         <td>${{ "%.6f"|format(p.current_price_usd) }}</td>
@@ -295,7 +331,13 @@
       <tr>
         <td>{{ t.executed_at[:16] }}</td>
         <td>{{ t.side }}</td>
-        <td>{{ t.symbol }}</td>
+        <td>
+          {% if t.position_id %}
+          <button class="symbol-link" data-position-id="{{ t.position_id }}">{{ t.symbol }}</button>
+          {% else %}
+          {{ t.symbol }}
+          {% endif %}
+        </td>
         <td>${{ "%.2f"|format(t.amount_usd) }}</td>
         <td>${{ "%.6f"|format(t.price_usd) }}</td>
         <td>{{ t.reason }}</td>
@@ -344,6 +386,21 @@
   </div>
   <div id="clubCursor" class="club-cursor" style="display: none;">
     <canvas id="clubCursorCanvas" width="64" height="56"></canvas>
+  </div>
+
+  <div id="positionModalOverlay" class="modal-overlay" style="display: none;">
+    <div class="modal">
+      <div class="modal-header">
+        <div>
+          <h3 id="positionModalTitle">—</h3>
+          <div class="modal-subtitle" id="positionModalSubtitle"></div>
+        </div>
+        <button class="modal-close" id="positionModalClose">&times;</button>
+      </div>
+      <div id="positionModalBody">
+        <div class="modal-loading">Loading...</div>
+      </div>
+    </div>
   </div>
 
 <script>
@@ -506,6 +563,20 @@
   }
 
   function pnlClass(v) { return v >= 0 ? 'positive' : 'negative'; }
+
+  function symbolLinkCell(symbol, positionId) {
+    const td = document.createElement('td');
+    if (!positionId) {
+      td.textContent = symbol;
+      return td;
+    }
+    const btn = document.createElement('button');
+    btn.className = 'symbol-link';
+    btn.dataset.positionId = positionId;
+    btn.textContent = symbol;
+    td.appendChild(btn);
+    return td;
+  }
 
   function renderCards(s) {
     document.getElementById('equityValue').textContent = '$' + fmt(s.equity_usd, 2);
@@ -915,7 +986,7 @@
     table.appendChild(header);
     s.open_positions.forEach((p) => {
       const row = document.createElement('tr');
-      row.appendChild(cell(p.symbol));
+      row.appendChild(symbolLinkCell(p.symbol, p.id));
       row.appendChild(cell(fmt(p.quantity, 4)));
       row.appendChild(cell('$' + fmt(p.entry_price_usd, 6)));
       row.appendChild(cell('$' + fmt(p.current_price_usd, 6)));
@@ -964,7 +1035,7 @@
       const row = document.createElement('tr');
       row.appendChild(cell(t.executed_at.slice(0, 16)));
       row.appendChild(cell(t.side));
-      row.appendChild(cell(t.symbol));
+      row.appendChild(symbolLinkCell(t.symbol, t.position_id));
       row.appendChild(cell('$' + fmt(t.amount_usd, 2)));
       row.appendChild(cell('$' + fmt(t.price_usd, 6)));
       row.appendChild(cell(t.reason));
@@ -1288,6 +1359,199 @@
 
   document.querySelectorAll('.btn-sell').forEach((btn) => {
     btn.addEventListener('click', () => sellOne(btn));
+  });
+
+  // ---- Per-position detail modal ---------------------------------------
+  // Clicking a coin's symbol (in either the open-positions or recent-trades
+  // table) opens this: not general info about the token, but this specific
+  // position's own journey -- entry vs. current/exit price, cost basis,
+  // fees, realized/unrealized P&L, every fill against it, and a price chart
+  // spanning just its own lifetime (entry to exit, or entry to now if still
+  // open). Delegated on `document` rather than bound per-button, since the
+  // buttons themselves are torn down and rebuilt on every refresh tick.
+
+  let positionChart = null;
+
+  function closePositionModal() {
+    document.getElementById('positionModalOverlay').style.display = 'none';
+    if (positionChart) {
+      positionChart.destroy();
+      positionChart = null;
+    }
+  }
+
+  async function openPositionDetail(positionId) {
+    document.getElementById('positionModalOverlay').style.display = 'flex';
+    document.getElementById('positionModalTitle').textContent = 'Loading...';
+    document.getElementById('positionModalSubtitle').textContent = '';
+    const body = document.getElementById('positionModalBody');
+    body.innerHTML = '<div class="modal-loading">Loading...</div>';
+
+    try {
+      const resp = await fetch('/api/position/' + encodeURIComponent(positionId));
+      if (resp.status === 404) {
+        document.getElementById('positionModalTitle').textContent = 'Not found';
+        body.innerHTML = '<div class="modal-empty">This position could not be found.</div>';
+        return;
+      }
+      if (!resp.ok) throw new Error('bad response');
+      renderPositionDetail(await resp.json());
+    } catch (err) {
+      document.getElementById('positionModalTitle').textContent = 'Error';
+      body.innerHTML = '<div class="modal-empty">Couldn\'t load this position right now.</div>';
+    }
+  }
+
+  function renderPositionDetail(d) {
+    const statusLabel = d.status === 'open' ? 'Open' : 'Closed';
+    document.getElementById('positionModalTitle').textContent = `${d.symbol} — ${statusLabel}`;
+    const opened = d.opened_at.slice(0, 16).replace('T', ' ');
+    const closedNote = d.closed_at
+      ? ` · closed ${d.closed_at.slice(0, 16).replace('T', ' ')}`
+      : ' · still open';
+    document.getElementById('positionModalSubtitle').textContent =
+      `Opened ${opened}${closedNote} · via ${d.signal_source} (${fmt(d.signal_score, 0)})`;
+
+    const body = document.getElementById('positionModalBody');
+    body.innerHTML = '';
+
+    const pnlLabel = d.status === 'open' ? 'Unrealized P&L' : 'Realized P&L';
+    const pnlValue = d.status === 'open' ? d.unrealized_pnl_usd : d.realized_pnl_usd;
+    const qtyLabel = d.remaining_quantity !== d.original_quantity
+      ? `${fmt(d.remaining_quantity, 4)} / ${fmt(d.original_quantity, 4)}`
+      : fmt(d.remaining_quantity, 4);
+    const statDefs = [
+      ['Entry price', '$' + fmt(d.entry_price_usd, 6)],
+      [d.status === 'open' ? 'Current price' : 'Exit price', '$' + fmt(d.current_price_usd, 6), null],
+      ['Quantity', qtyLabel],
+      ['Cost basis', '$' + fmt(d.cost_basis_usd, 2)],
+      ['Fees paid', '$' + fmt(d.fees_paid_usd, 2)],
+      [pnlLabel, fmtSigned(pnlValue, 2), pnlClass(pnlValue)],
+      ['Total P&L', `${fmtSigned(d.total_pnl_usd, 2)} (${fmtSigned(d.total_return_pct, 1)}%)`, pnlClass(d.total_pnl_usd)],
+    ];
+    const stats = document.createElement('div');
+    stats.className = 'modal-stats';
+    statDefs.forEach(([label, value, cls]) => {
+      const stat = document.createElement('div');
+      stat.className = 'stat';
+      const l = document.createElement('div');
+      l.className = 'label';
+      l.textContent = label;
+      const v = document.createElement('div');
+      v.className = 'value' + (cls ? ' ' + cls : '');
+      v.textContent = value;
+      stat.appendChild(l);
+      stat.appendChild(v);
+      stats.appendChild(stat);
+    });
+    body.appendChild(stats);
+
+    const chartCanvas = document.createElement('canvas');
+    body.appendChild(chartCanvas);
+
+    const tradesHeading = document.createElement('h4');
+    tradesHeading.textContent = 'Trades';
+    body.appendChild(tradesHeading);
+
+    if (!d.trades.length) {
+      const empty = document.createElement('div');
+      empty.className = 'modal-empty';
+      empty.textContent = 'No trades recorded.';
+      body.appendChild(empty);
+    } else {
+      const table = document.createElement('table');
+      const header = document.createElement('tr');
+      ['Time', 'Side', 'Price', 'Amount', 'Reason', 'P&L'].forEach((h) => {
+        const th = document.createElement('th');
+        th.textContent = h;
+        header.appendChild(th);
+      });
+      table.appendChild(header);
+      d.trades.forEach((t) => {
+        const row = document.createElement('tr');
+        row.appendChild(cell(t.executed_at.slice(0, 16).replace('T', ' ')));
+        row.appendChild(cell(t.side));
+        row.appendChild(cell('$' + fmt(t.price_usd, 6)));
+        row.appendChild(cell('$' + fmt(t.amount_usd, 2)));
+        row.appendChild(cell(t.reason));
+        row.appendChild(cell(
+          t.realized_pnl_usd === null ? '—' : fmtSigned(t.realized_pnl_usd, 2),
+          t.realized_pnl_usd === null ? '' : pnlClass(t.realized_pnl_usd),
+        ));
+        table.appendChild(row);
+      });
+      body.appendChild(table);
+    }
+
+    if (positionChart) {
+      positionChart.destroy();
+      positionChart = null;
+    }
+    if (d.price_series.length > 1) {
+      const up = d.price_series[d.price_series.length - 1].price_usd >= d.entry_price_usd;
+      positionChart = new Chart(chartCanvas, {
+        type: 'line',
+        data: {
+          labels: d.price_series.map((p) => p.captured_at.slice(5, 16).replace('T', ' ')),
+          datasets: [{
+            label: 'Price',
+            data: d.price_series.map((p) => p.price_usd),
+            borderColor: lineColorFor(up),
+            backgroundColor: fillColorFor(up),
+            borderWidth: 2,
+            fill: true,
+            tension: 0.15,
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            pointHitRadius: 20,
+            pointBackgroundColor: lineColorFor(up),
+            pointBorderColor: '#14171f',
+            pointBorderWidth: 2,
+          }],
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: 'index', intersect: false, axis: 'x' },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              displayColors: false,
+              backgroundColor: '#1c2029',
+              borderColor: '#262b36',
+              borderWidth: 1,
+              titleColor: mutedColor,
+              bodyColor: '#e6e8ec',
+              bodyFont: { weight: '600' },
+              padding: 10,
+              cornerRadius: 6,
+              callbacks: { label: (item) => '$' + Number(item.parsed.y).toFixed(6) },
+            },
+          },
+          scales: {
+            x: { ticks: { color: mutedColor, maxTicksLimit: 6 }, grid: { color: gridColor, drawTicks: false } },
+            y: { ticks: { color: mutedColor }, grid: { color: gridColor, drawTicks: false } },
+          },
+        },
+      });
+    } else {
+      const note = document.createElement('div');
+      note.className = 'modal-empty';
+      note.textContent = 'Not enough price history yet to chart.';
+      chartCanvas.replaceWith(note);
+    }
+  }
+
+  document.getElementById('positionModalClose').addEventListener('click', closePositionModal);
+  document.getElementById('positionModalOverlay').addEventListener('click', (e) => {
+    if (e.target.id === 'positionModalOverlay') closePositionModal();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closePositionModal();
+  });
+  document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.symbol-link');
+    if (btn) openPositionDetail(btn.dataset.positionId);
   });
 
   // 'change' (fires once on release), not 'input' (fires on every pixel of

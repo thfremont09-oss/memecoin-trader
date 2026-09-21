@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -357,3 +358,70 @@ def test_set_caution_level_clamps_above_max(ledger):
 def test_set_caution_level_clamps_below_min(ledger):
     assert ledger.set_caution_level(-3) == 1
     assert ledger.get_caution_level() == 1
+
+
+def test_get_position_by_id_finds_open_and_closed_positions(ledger):
+    position = _open(ledger)
+    assert ledger.get_position_by_id(position.id).token_address == position.token_address
+
+    _close(ledger, position)
+    found = ledger.get_position_by_id(position.id)
+    assert found.status == "closed"
+    assert found.closed_at is not None
+
+
+def test_get_position_by_id_returns_none_for_unknown_id(ledger):
+    assert ledger.get_position_by_id(999999) is None
+
+
+def test_get_trades_for_position_returns_only_that_position_oldest_first(ledger):
+    position_a = _open(ledger, token_address="TOKENAAAA111111111111111111111111111111111")
+    position_b = _open(ledger, token_address="TOKENBBBB111111111111111111111111111111111")
+
+    partial_fill = FillResult(
+        price_usd=Decimal("1.5"), quantity=Decimal("10"), amount_usd=Decimal("15"), fee_usd=Decimal("0.15"), tx_id=None
+    )
+    ledger.apply_sell(
+        position=position_a, fraction=Decimal("0.5"), fill=partial_fill, reason="take_profit_partial",
+        mark_take_profit_taken=True, mode="paper",
+    )
+    remaining_a = ledger.get_open_position_for_token(position_a.token_address)
+    _close(ledger, remaining_a, price="2.0", quantity="10", amount="20", fee="0.2")
+
+    trades_a = ledger.get_trades_for_position(position_a.id)
+    assert [t.side for t in trades_a] == ["buy", "sell", "sell"]
+    assert all(t.position_id == position_a.id for t in trades_a)
+
+    trades_b = ledger.get_trades_for_position(position_b.id)
+    assert len(trades_b) == 1
+    assert trades_b[0].side == "buy"
+
+
+def test_get_price_series_for_position_bounds_by_start_and_end(ledger):
+    position = _open(ledger)
+    token = position.token_address
+    opened_at = position.opened_at
+
+    before = (opened_at - timedelta(minutes=10)).isoformat()
+    during = (opened_at + timedelta(minutes=5)).isoformat()
+    well_after = (opened_at + timedelta(minutes=30)).isoformat()
+
+    ledger._conn.execute(
+        "INSERT INTO price_snapshots (token_address, price_usd, liquidity_usd, volume_24h_usd, captured_at) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (token, "0.5", "20000", "50000", before),
+    )
+    ledger._conn.execute(
+        "INSERT INTO price_snapshots (token_address, price_usd, liquidity_usd, volume_24h_usd, captured_at) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (token, "1.2", "20000", "50000", during),
+    )
+    ledger._conn.commit()
+
+    series = ledger.get_price_series_for_position(token, start_iso=opened_at.isoformat())
+    assert [p["price_usd"] for p in series] == [1.2]  # "before" predates the position, excluded
+
+    bounded = ledger.get_price_series_for_position(token, start_iso=before, end_iso=during)
+    assert [p["price_usd"] for p in bounded] == [0.5, 1.2]
+
+    assert ledger.get_price_series_for_position(token, start_iso=well_after) == []

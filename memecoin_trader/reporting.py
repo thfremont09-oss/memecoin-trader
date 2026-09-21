@@ -46,6 +46,7 @@ def build_summary(ledger: Ledger, equity_range: str = "all") -> dict:
         positions_value += value
         position_rows.append(
             {
+                "id": p.id,
                 "token_address": p.token_address,
                 "symbol": p.symbol,
                 "entry_price_usd": float(p.entry_price_usd),
@@ -71,6 +72,7 @@ def build_summary(ledger: Ledger, equity_range: str = "all") -> dict:
     recent_trades = [
         {
             "id": t.id,
+            "position_id": t.position_id,
             "token_address": t.token_address,
             "symbol": t.symbol,
             "side": t.side,
@@ -102,4 +104,74 @@ def build_summary(ledger: Ledger, equity_range: str = "all") -> dict:
         "equity_range": equity_range if equity_range in EQUITY_CURVE_RANGES else "all",
         "equity_curve": ledger.get_equity_curve(since_iso=_range_since_iso(equity_range)),
         "performance_by_source": ledger.get_performance_by_source(),
+    }
+
+
+def build_position_detail(ledger: Ledger, position_id: int) -> dict | None:
+    """Everything the dashboard's per-position detail view needs: entry vs.
+    current/exit price, cost basis and fees, realized + unrealized P&L, the
+    full trade history for this one position (entry buy, any partial
+    take-profit sells, the final exit), and a price series spanning its
+    lifetime for the chart. Returns None if no position with that id exists.
+    """
+    position = ledger.get_position_by_id(position_id)
+    if position is None:
+        return None
+
+    trades = ledger.get_trades_for_position(position_id)
+    is_open = position.status == "open"
+    if is_open:
+        current_price = _mark_price(ledger, position.token_address, position.entry_price_usd)
+    elif trades and trades[-1].side == "sell":
+        current_price = trades[-1].price_usd  # the price it actually exited at
+    else:
+        current_price = position.entry_price_usd
+
+    realized_pnl_usd = sum((t.realized_pnl_usd for t in trades if t.realized_pnl_usd is not None), Decimal(0))
+    unrealized_pnl_usd = position.unrealized_pnl_usd(current_price) if is_open else Decimal(0)
+    total_pnl_usd = realized_pnl_usd + unrealized_pnl_usd
+    initial_cost_usd = position.original_quantity * position.entry_price_usd
+    total_return_pct = float(total_pnl_usd / initial_cost_usd * 100) if initial_cost_usd else 0.0
+
+    start_iso = position.opened_at.isoformat()
+    end_iso = position.closed_at.isoformat() if position.closed_at else None
+    price_series = ledger.get_price_series_for_position(position.token_address, start_iso, end_iso)
+
+    return {
+        "id": position.id,
+        "token_address": position.token_address,
+        "symbol": position.symbol,
+        "status": position.status,
+        "entry_price_usd": float(position.entry_price_usd),
+        "current_price_usd": float(current_price),
+        "original_quantity": float(position.original_quantity),
+        "remaining_quantity": float(position.quantity),
+        "cost_basis_usd": float(position.cost_basis_usd),
+        "fees_paid_usd": float(position.fees_paid_usd),
+        "peak_price_usd": float(position.peak_price_usd),
+        "entry_liquidity_usd": float(position.entry_liquidity_usd),
+        "take_profit_taken": position.take_profit_taken,
+        "opened_at": position.opened_at.isoformat(),
+        "closed_at": position.closed_at.isoformat() if position.closed_at else None,
+        "signal_source": position.signal_source,
+        "signal_score": position.signal_score,
+        "realized_pnl_usd": float(realized_pnl_usd),
+        "unrealized_pnl_usd": float(unrealized_pnl_usd),
+        "total_pnl_usd": float(total_pnl_usd),
+        "total_return_pct": total_return_pct,
+        "trades": [
+            {
+                "id": t.id,
+                "side": t.side,
+                "price_usd": float(t.price_usd),
+                "quantity": float(t.quantity),
+                "amount_usd": float(t.amount_usd),
+                "fee_usd": float(t.fee_usd),
+                "realized_pnl_usd": float(t.realized_pnl_usd) if t.realized_pnl_usd is not None else None,
+                "reason": t.reason,
+                "executed_at": t.executed_at.isoformat(),
+            }
+            for t in trades
+        ],
+        "price_series": price_series,
     }

@@ -24,6 +24,7 @@ class Position:
     signal_source: str
     signal_score: float
     status: str  # "open" | "closed"
+    closed_at: datetime | None = None
 
     def unrealized_pnl_usd(self, current_price_usd: Decimal) -> Decimal:
         return self.quantity * current_price_usd - self.cost_basis_usd

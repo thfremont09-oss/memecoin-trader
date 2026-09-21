@@ -64,6 +64,30 @@ def test_online_reenables_trading(client):
     assert Ledger(conn).is_trading_enabled() is True
 
 
+def test_position_detail_404s_for_unknown_id(client):
+    c, _ = client
+    resp = c.get("/api/position/999999")
+    assert resp.status_code == 404
+
+
+def test_position_detail_returns_open_position_with_trades(client):
+    c, db_path = client
+    token = "TOKEN4444444444444444444444444444444444444"
+    _seed_open_position(db_path, token)
+
+    conn = get_connection(db_path)
+    position = Ledger(conn).get_open_position_for_token(token)
+
+    resp = c.get(f"/api/position/{position.id}")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["id"] == position.id
+    assert data["token_address"] == token
+    assert data["status"] == "open"
+    assert len(data["trades"]) == 1
+    assert data["trades"][0]["side"] == "buy"
+
+
 def test_sell_one_with_no_such_position(client):
     c, _ = client
     resp = c.post("/api/sell/NOT_A_REAL_TOKEN")
