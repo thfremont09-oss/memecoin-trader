@@ -110,6 +110,25 @@ class Ledger:
     def get_cash_usd(self) -> Decimal:
         return self.get_portfolio_state().cash_usd
 
+    def deposit_cash(self, amount: Decimal) -> Decimal:
+        """Adds fresh cash to the portfolio (e.g. `memecoin-trader deposit 20`).
+
+        Raises `starting_balance_usd` by the same amount as `cash_usd`, so
+        `total_return_usd` (equity - starting_balance) keeps measuring
+        actual trading performance rather than counting the deposit itself
+        as profit. Returns the new cash balance.
+        """
+        if amount <= 0:
+            raise ValueError("deposit amount must be positive")
+        state = self.get_portfolio_state()
+        new_cash = state.cash_usd + amount
+        new_starting_balance = state.starting_balance_usd + amount
+        self._conn.execute(
+            "UPDATE portfolio_state SET cash_usd = ?, starting_balance_usd = ?, updated_at = ? WHERE id = 1",
+            (str(new_cash), str(new_starting_balance), _now_iso()),
+        )
+        return new_cash
+
     def is_trading_enabled(self) -> bool:
         return self.get_portfolio_state().trading_enabled
 

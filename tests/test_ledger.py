@@ -21,6 +21,27 @@ def test_starting_cash_is_100(ledger):
     assert ledger.get_cash_usd() == Decimal("100")
 
 
+def test_deposit_cash_adds_to_balance(ledger):
+    new_cash = ledger.deposit_cash(Decimal("20"))
+    assert new_cash == Decimal("120")
+    assert ledger.get_cash_usd() == Decimal("120")
+
+
+def test_deposit_cash_raises_starting_balance_so_return_stays_accurate(ledger):
+    ledger.deposit_cash(Decimal("20"))
+    state = ledger.get_portfolio_state()
+    assert state.starting_balance_usd == Decimal("120")
+    # a deposit alone shouldn't look like trading profit
+    assert state.cash_usd - state.starting_balance_usd == Decimal("0")
+
+
+def test_deposit_cash_rejects_non_positive_amounts(ledger):
+    with pytest.raises(ValueError):
+        ledger.deposit_cash(Decimal("0"))
+    with pytest.raises(ValueError):
+        ledger.deposit_cash(Decimal("-5"))
+
+
 def test_open_position_deducts_cash_including_fee(ledger):
     signal = make_signal()
     fill = buy_fill(price="1.0", quantity="20", amount="20", fee="0.2")

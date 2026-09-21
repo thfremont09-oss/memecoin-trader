@@ -271,6 +271,28 @@ def cmd_caution(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_deposit(args: argparse.Namespace) -> int:
+    settings = load_settings()
+    conn = get_connection(DB_PATH)
+    init_db(conn, Decimal(str(settings.starting_balance_usd)))
+    ledger = Ledger(conn)
+
+    try:
+        amount = Decimal(str(args.amount))
+    except Exception:
+        print(f"'{args.amount}' isn't a valid dollar amount.")
+        return 1
+
+    try:
+        new_cash = ledger.deposit_cash(amount)
+    except ValueError as exc:
+        print(str(exc))
+        return 1
+
+    print(f"Deposited ${amount:.2f}. Cash is now ${new_cash:.2f}.")
+    return 0
+
+
 def cmd_reset(args: argparse.Namespace) -> int:
     settings = load_settings()
     if not args.yes:
@@ -308,6 +330,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_reset = sub.add_parser("reset", help="wipe simulation data and restart from the starting balance")
     p_reset.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
     p_reset.set_defaults(func=cmd_reset)
+
+    p_deposit = sub.add_parser("deposit", help="add cash to the simulated portfolio without touching trade history")
+    p_deposit.add_argument("amount", type=float, help="dollar amount to add, e.g. 20")
+    p_deposit.set_defaults(func=cmd_deposit)
 
     p_liquidate = sub.add_parser(
         "liquidate", help="sell all open positions immediately at current market price"

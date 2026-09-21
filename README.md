@@ -685,11 +685,16 @@ python -m memecoin_trader.cli liquidate
 
 # Wipe the simulation and start over from $100
 python -m memecoin_trader.cli reset
+
+# Add cash to the simulated portfolio without touching trade history
+# (also raises the "starting balance" baseline by the same amount, so
+# Total return keeps measuring actual trading performance, not the deposit)
+python -m memecoin_trader.cli deposit 20
 ```
 
 (If you installed the package with `pip install -e .`, you can also just
 run `memecoin-trader run` / `status` / `dashboard` / `sell` / `offline` /
-`online` / `liquidate` / `reset`.)
+`online` / `liquidate` / `reset` / `deposit`.)
 
 **About `offline`/`online`:** these are the same actions as the dashboard's
 "Go offline"/"Go online" buttons below. Going offline sells everything and
