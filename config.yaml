@@ -195,3 +195,15 @@ signals:
       - biz
     max_threads_per_poll: 40
     mention_cooldown_minutes: 30       # don't re-signal the same token more often than this
+  telegram:
+    # Real Telegram channel messages via Telegram's own official MTProto
+    # client library (Telethon) -- not scraping, this is the same API the
+    # real Telegram app uses, reading public channels you choose. Needs a
+    # free api_id/api_hash from https://my.telegram.org and a one-time
+    # interactive login (phone number + code) via
+    # scripts/telegram_login_setup.py -- see README's "Telegram" section.
+    enabled: false
+    channels:
+      - solanamemecoincalls
+    max_messages_per_channel_per_poll: 20
+    mention_cooldown_minutes: 30       # don't re-signal the same token more often than this

@@ -8,10 +8,11 @@ import sqlite3
 import time
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+from pathlib import Path
 
 from memecoin_trader.analysis.entry_strategy import EntryContext, effective_score, evaluate_entry
 from memecoin_trader.analysis.exit_strategy import evaluate_exit
-from memecoin_trader.config import DB_PATH, MODEL_PATH, TWITTER_SESSION_PATH, EntryConfig, Settings
+from memecoin_trader.config import DB_PATH, MODEL_PATH, TELEGRAM_SESSION_PATH, TWITTER_SESSION_PATH, EntryConfig, Settings
 from memecoin_trader.execution.base import Executor
 from memecoin_trader.execution.paper_executor import PaperExecutor
 from memecoin_trader.market.dexscreener import DexScreenerClient
@@ -187,6 +188,31 @@ def build_signal_source(settings: Settings, market_client: DexScreenerClient) ->
             "adding 4chan /biz/ signal source alongside %s (corroboration-only, capped low)", primary.name
         )
         sources.append(FourChanBizSource(config=settings.fourchan_signal, chain_id=settings.chain_id))
+
+    if settings.telegram_signal.enabled:
+        if not (settings.secrets.telegram_api_id and settings.secrets.telegram_api_hash):
+            logger.warning(
+                "signals.telegram.enabled is true but TELEGRAM_API_ID/TELEGRAM_API_HASH "
+                "are not set — skipping the Telegram signal source"
+            )
+        elif not (TELEGRAM_SESSION_PATH.exists() or Path(str(TELEGRAM_SESSION_PATH) + ".session").exists()):
+            logger.warning(
+                "signals.telegram.enabled is true but no saved Telegram session exists — "
+                "run: python scripts/telegram_login_setup.py — skipping the Telegram signal source"
+            )
+        else:
+            from memecoin_trader.signals.telegram_source import TelegramSource
+
+            logger.info("adding Telegram signal source alongside %s", primary.name)
+            sources.append(
+                TelegramSource(
+                    config=settings.telegram_signal,
+                    secrets=settings.secrets,
+                    session_path=TELEGRAM_SESSION_PATH,
+                    chain_id=settings.chain_id,
+                    market_client=market_client,
+                )
+            )
 
     if len(sources) == 1:
         return sources[0]

@@ -113,3 +113,60 @@ def test_farcaster_is_added_once_credentialed():
     source = build_signal_source(settings, market)
 
     assert "farcaster" in source.name
+
+
+def test_telegram_is_off_by_default():
+    settings = load_settings()
+    market = DexScreenerClient()
+
+    source = build_signal_source(settings, market)
+
+    names = source.name if isinstance(source, CompositeSignalSource) else source.name
+    assert "telegram" not in names
+
+
+def test_telegram_is_skipped_without_credentials_even_if_enabled(tmp_path, monkeypatch):
+    settings = load_settings()
+    settings = dataclasses.replace(settings, telegram_signal=dataclasses.replace(settings.telegram_signal, enabled=True))
+    session_path = tmp_path / "telegram_session"
+    (tmp_path / "telegram_session.session").write_text("fake session")
+    monkeypatch.setattr("memecoin_trader.engine.TELEGRAM_SESSION_PATH", session_path)
+    market = DexScreenerClient()
+
+    source = build_signal_source(settings, market)
+
+    names = source.name if isinstance(source, CompositeSignalSource) else source.name
+    assert "telegram" not in names
+
+
+def test_telegram_is_skipped_without_a_session_even_if_credentialed(tmp_path, monkeypatch):
+    settings = load_settings()
+    settings = dataclasses.replace(settings, telegram_signal=dataclasses.replace(settings.telegram_signal, enabled=True))
+    settings = dataclasses.replace(
+        settings,
+        secrets=dataclasses.replace(settings.secrets, telegram_api_id="123456", telegram_api_hash="hash"),
+    )
+    monkeypatch.setattr("memecoin_trader.engine.TELEGRAM_SESSION_PATH", tmp_path / "telegram_session")  # no .session file created
+    market = DexScreenerClient()
+
+    source = build_signal_source(settings, market)
+
+    names = source.name if isinstance(source, CompositeSignalSource) else source.name
+    assert "telegram" not in names
+
+
+def test_telegram_is_added_once_credentialed_and_logged_in(tmp_path, monkeypatch):
+    settings = load_settings()
+    settings = dataclasses.replace(settings, telegram_signal=dataclasses.replace(settings.telegram_signal, enabled=True))
+    settings = dataclasses.replace(
+        settings,
+        secrets=dataclasses.replace(settings.secrets, telegram_api_id="123456", telegram_api_hash="hash"),
+    )
+    session_path = tmp_path / "telegram_session"
+    (tmp_path / "telegram_session.session").write_text("fake session")
+    monkeypatch.setattr("memecoin_trader.engine.TELEGRAM_SESSION_PATH", session_path)
+    market = DexScreenerClient()
+
+    source = build_signal_source(settings, market)
+
+    assert "telegram" in source.name

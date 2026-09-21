@@ -303,6 +303,32 @@ ever being trusted as a signal on its own. If you ever tune
 `mention_score_threshold` dramatically lower than the default, revisit
 this cap — the safety property only holds at realistic threshold values.
 
+### Telegram (free API credentials, one-time login — off by default)
+
+`TelegramSource` (`memecoin_trader/signals/telegram_source.py`) reads public
+Telegram channel messages via [Telethon](https://docs.telethon.dev), the
+same official MTProto client library the real Telegram app itself uses —
+not scraping, and not the bot-in-a-server route (most worthwhile
+alpha/gem-call channels ban bots specifically to prevent that; this reads
+as a real logged-in user account instead, the same way you'd read the
+channel in the app). Solana memecoin "gem call" channels are one of the
+most active sources of this kind of hype, often earlier than Twitter or
+Reddit.
+
+Setup, two steps:
+1. Get a free `api_id`/`api_hash` at [my.telegram.org](https://my.telegram.org)
+   (log in with your phone number → API development tools → create an app)
+   and set `TELEGRAM_API_ID`/`TELEGRAM_API_HASH` in `.env`.
+2. Run `python scripts/telegram_login_setup.py` once — it prompts for your
+   phone number, the login code Telegram texts you, and your 2FA password if
+   you have one set, then saves a reusable session to `data/`.
+
+Then set `signals.telegram.enabled: true` in `config.yaml` and list the
+channel usernames you want to watch under `signals.telegram.channels`
+(without the `@`). Off by default (unlike Reddit/Birdeye/Farcaster, which
+are on-by-default-but-inert without credentials) because it needs that
+one-time interactive login before it can do anything at all.
+
 **Not integrated, and why:** Truth Social has no public API either, so
 scanning it would mean the same throwaway-account browser scraping as
 Twitter/X, for a platform with much less crypto-trading chatter — not worth
@@ -317,11 +343,10 @@ being wound down for new external-data use cases in favor of Devvit
 (Reddit's in-platform app framework, which can't serve data out to an
 external bot like this one) — not worth pursuing further; see the
 [Reddit](#reddit-official-api-approval-required) section above for the
-full story. Discord and Telegram alpha-calling servers/groups are real
-sources of hype but require either admin access to add a bot (most
-worthwhile servers ban bots specifically to prevent this) or scraping a
-platform we haven't evaluated the ToS risk of yet — ask if you have a
-specific server you can actually get a bot into.
+full story. Discord alpha-calling servers are a real source of hype but
+need admin access to add a bot (most worthwhile servers ban bots
+specifically to prevent this) — ask if you have a specific server you can
+actually get a bot into.
 
 ### Why the simulation should be trusted
 
@@ -424,7 +449,8 @@ real and tell me if anything about the response shape looks off.
 
 With multiple independent hype/discovery sources now running at once
 (Twitter/X, Reddit, Birdeye, DexScreener boosts, GeckoTerminal, Raydium,
-Bluesky, Farcaster, 4chan /biz/, the mock feed, optionally pump.fun), the bot
+Bluesky, Farcaster, 4chan /biz/, the mock feed, optionally pump.fun and
+Telegram), the bot
 tracks which sources have flagged each token recently
 (`entry.corroboration_window_minutes`, default 30). If 2 or more distinct
 sources independently flag the same token within that window, its score
@@ -983,6 +1009,7 @@ memecoin_trader/
     bluesky_source.py      Bluesky's free public searchPosts API (no key, ever)
     farcaster_source.py    Farcaster casts via Neynar's free-tier API (needs NEYNAR_API_KEY)
     fourchan_source.py     4chan /biz/ catalog (no key; corroboration-only, capped low)
+    telegram_source.py     Telegram channels via Telethon (needs TELEGRAM_API_ID/HASH + one-time login, off by default)
     composite_source.py    merges multiple signal sources (e.g. Twitter + Reddit + Birdeye) into one
   market/
     dexscreener.py        real public market data client
@@ -1003,6 +1030,7 @@ memecoin_trader/
   dashboard/
     server.py + templates/index.html   local FastAPI dashboard
 scripts/                  Windows Task Scheduler installer/watchdogs (24/7 without a cloud host),
-                          twitter_login_setup.py (one-time manual X login for the browser scraper)
+                          twitter_login_setup.py (one-time manual X login for the browser scraper),
+                          telegram_login_setup.py (one-time manual Telegram login for the Telegram source)
 tests/                    pytest suite
 ```
