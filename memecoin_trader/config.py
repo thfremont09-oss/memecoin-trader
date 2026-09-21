@@ -26,6 +26,7 @@ class TimingConfig:
     signal_poll_interval_seconds: int
     position_check_interval_seconds: int
     equity_snapshot_interval_seconds: int
+    liquidity_rug_check_interval_seconds: float
     token_cooldown_minutes: int
 
 

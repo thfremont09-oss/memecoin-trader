@@ -362,6 +362,64 @@ def test_unknown_caution_level_falls_back_to_default():
     assert cooldown == settings.timing.token_cooldown_minutes
 
 
+def test_recent_tick_liquidity_drop_does_not_trigger_sudden_rug(conn):
+    # A single position-check-interval-apart (5s) liquidity comparison is
+    # noise-prone in thin pools -- the sudden-rug check should only compare
+    # against a snapshot at least liquidity_rug_check_interval_seconds old,
+    # so a drop recorded between two back-to-back _manage_open_positions()
+    # calls must NOT trigger it.
+    engine, signal_source, market = build_engine(conn)
+    token = "TOKENFFFF111111111111111111111111111111111"
+
+    market.pairs[token] = make_pair(token_address=token, price_usd="1.0")  # default liquidity_usd="50000"
+    signal_source.queue = [make_signal(token_address=token, score=90)]
+    engine._poll_signals()
+    assert len(engine.ledger.get_open_positions()) == 1
+
+    # first management tick: records the only price snapshot so far
+    engine._manage_open_positions()
+    assert len(engine.ledger.get_open_positions()) == 1
+
+    # liquidity halves an instant later -- too recent to count as the
+    # "previous" reading for the sudden-drop check
+    market.pairs[token] = make_pair(token_address=token, price_usd="1.0", liquidity_usd="25000")
+    engine._manage_open_positions()
+
+    positions = engine.ledger.get_open_positions()
+    assert len(positions) == 1
+    assert positions[0].token_address == token
+
+
+def test_old_enough_liquidity_drop_still_triggers_sudden_rug(conn):
+    from datetime import datetime, timedelta, timezone
+
+    engine, signal_source, market = build_engine(conn)
+    token = "TOKENGGGG111111111111111111111111111111111"
+
+    market.pairs[token] = make_pair(token_address=token, price_usd="1.0")  # default liquidity_usd="50000"
+    signal_source.queue = [make_signal(token_address=token, score=90)]
+    engine._poll_signals()
+    assert len(engine.ledger.get_open_positions()) == 1
+
+    # backdate a snapshot old enough to clear liquidity_rug_check_interval_seconds
+    backdated = datetime.now(timezone.utc) - timedelta(seconds=60)
+    conn.execute(
+        "INSERT INTO price_snapshots (token_address, price_usd, liquidity_usd, volume_24h_usd, captured_at) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (token, "1.0", "50000", "50000", backdated.isoformat()),
+    )
+    conn.commit()
+
+    # a genuine rug: liquidity collapses to a quarter of that old reading
+    market.pairs[token] = make_pair(token_address=token, price_usd="1.0", liquidity_usd="12500")
+    engine._manage_open_positions()
+
+    assert engine.ledger.get_open_positions() == []
+    sell_trades = [t for t in engine.ledger.get_recent_trades() if t.side == "sell"]
+    assert len(sell_trades) == 1
+    assert sell_trades[0].reason == "liquidity_rug_sudden"
+
+
 def test_caution_level_changes_whether_a_borderline_signal_gets_bought(conn):
     engine, signal_source, market = build_engine(conn)
     token = "TOKENEEEE111111111111111111111111111111111"

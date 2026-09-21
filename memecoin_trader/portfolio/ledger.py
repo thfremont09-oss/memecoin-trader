@@ -394,6 +394,21 @@ class Ledger:
         ).fetchone()
         return Decimal(row["liquidity_usd"]) if row and row["liquidity_usd"] is not None else None
 
+    def get_liquidity_before(self, token_address: str, cutoff_iso: str) -> Decimal | None:
+        """The liquidity_usd from the most recent snapshot at or before
+        `cutoff_iso` -- used as the "previous" reading for the sudden-drop
+        rug check instead of the literal last poll, so that check compares
+        against a real window (e.g. 30s) rather than whatever
+        position_check_interval_seconds happens to be (5s, tuned purely for
+        dashboard responsiveness) -- a single 5s-apart comparison is prone
+        to normal thin-pool price-impact noise reading as a "rug"."""
+        row = self._conn.execute(
+            "SELECT liquidity_usd FROM price_snapshots WHERE token_address = ? AND captured_at <= ? "
+            "ORDER BY captured_at DESC LIMIT 1",
+            (token_address, cutoff_iso),
+        ).fetchone()
+        return Decimal(row["liquidity_usd"]) if row and row["liquidity_usd"] is not None else None
+
     def get_price_history(self, token_address: str, limit: int = 200) -> list[Decimal]:
         rows = self._conn.execute(
             """

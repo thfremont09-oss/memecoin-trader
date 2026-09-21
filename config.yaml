@@ -15,6 +15,7 @@ timing:
   signal_poll_interval_seconds: 45   # back to 45 — less frantic, only act on hype that's actually persisted a bit
   position_check_interval_seconds: 5  # matches the dashboard's 5s auto-refresh so prices/positions actually update every reload
   equity_snapshot_interval_seconds: 5  # same reason, for the equity chart
+  liquidity_rug_check_interval_seconds: 30  # the "sudden liquidity drop" rug check compares against a reading from this far back, NOT position_check_interval_seconds -- a single 5s-apart comparison was firing on ordinary thin-pool price-impact noise, not just real rugs
   token_cooldown_minutes: 60         # back to 60 — more patient before re-buying a token you just sold
 
 entry:
@@ -65,7 +66,7 @@ exit:
       trailing_stop_pct: 0.06
   max_hold_minutes: 240              # force exit after this long regardless
   liquidity_rug_fraction: 0.5        # trips the emergency liquidity-rug exit sooner — kept, this is a safety filter
-  sudden_liquidity_drop_pct: 0.35    # trips on a smaller sudden drop so an in-progress rug gets caught faster — kept, safety filter
+  sudden_liquidity_drop_pct: 0.45    # was 0.35 — that was firing on ordinary thin-pool volatility, not just real rugs, once liquidity_rug_check_interval_seconds stopped being the same 5s window everything else refreshes on; still well below what a genuine LP pull looks like
 
 execution:
   paper:

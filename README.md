@@ -385,10 +385,14 @@ extra screening before a buy, all configurable under `entry:` in
   fed to the ML model as a feature; it just wasn't a rule-based filter until
   now.
 - **Sudden liquidity-drop exit** (`exit.sudden_liquidity_drop_pct`, default
-  35%): for positions already held, an emergency exit fires if liquidity
-  drops sharply between two consecutive checks — catching an in-progress rug
-  faster than waiting for the cumulative decline-from-entry check
-  (`exit.liquidity_rug_fraction`, default 50%) to cross its floor.
+  45%): for positions already held, an emergency exit fires if liquidity
+  drops sharply compared to a reading from `timing.liquidity_rug_check_interval_seconds`
+  ago (default 30s) — catching an in-progress rug faster than waiting for the
+  cumulative decline-from-entry check (`exit.liquidity_rug_fraction`, default
+  50%) to cross its floor. This comparison window is deliberately decoupled
+  from `timing.position_check_interval_seconds` (default 5s, tuned purely for
+  how often the dashboard refreshes) — comparing two readings only 5s apart
+  was firing on ordinary thin-pool price-impact noise, not just real rugs.
 
 None of the above trades safety for trade volume — every extra signal
 source added still has to clear every one of these filters. The knobs that

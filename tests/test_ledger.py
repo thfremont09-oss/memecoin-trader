@@ -205,6 +205,36 @@ def test_latest_liquidity_tracks_most_recent_snapshot(ledger):
     assert ledger.get_latest_liquidity("TOKEN1") == Decimal("15000")
 
 
+def test_get_liquidity_before_ignores_snapshots_after_the_cutoff(ledger, conn):
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    conn.execute(
+        "INSERT INTO price_snapshots (token_address, price_usd, liquidity_usd, volume_24h_usd, captured_at) VALUES (?, ?, ?, ?, ?)",
+        ("TOKEN1", "1.0", "20000", "50000", (now - timedelta(seconds=60)).isoformat()),
+    )
+    conn.execute(
+        "INSERT INTO price_snapshots (token_address, price_usd, liquidity_usd, volume_24h_usd, captured_at) VALUES (?, ?, ?, ?, ?)",
+        ("TOKEN1", "1.0", "5000", "50000", now.isoformat()),
+    )
+    conn.commit()
+
+    cutoff = (now - timedelta(seconds=30)).isoformat()
+    # the recent "5000" snapshot is after the cutoff -- should be ignored,
+    # falling back to the older "20000" one
+    assert ledger.get_liquidity_before("TOKEN1", cutoff) == Decimal("20000")
+
+
+def test_get_liquidity_before_returns_none_with_no_snapshot_that_old(ledger, conn):
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    ledger.record_price_snapshot("TOKEN1", Decimal("1.0"), Decimal("20000"), Decimal("50000"))
+
+    cutoff = (now - timedelta(seconds=30)).isoformat()
+    assert ledger.get_liquidity_before("TOKEN1", cutoff) is None
+
+
 def test_training_dataset_excludes_open_positions(ledger):
     position = _open(ledger)
     ledger.save_trade_features(position.id, {"signal_score": 80.0})

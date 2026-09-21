@@ -6,6 +6,7 @@ import dataclasses
 import logging
 import sqlite3
 import time
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from memecoin_trader.analysis.entry_strategy import EntryContext, effective_score, evaluate_entry
@@ -378,7 +379,12 @@ class TradingEngine:
                 )
                 continue
 
-            previous_liquidity = self.ledger.get_latest_liquidity(position.token_address)
+            rug_check_cutoff = datetime.now(timezone.utc) - timedelta(
+                seconds=self.settings.timing.liquidity_rug_check_interval_seconds
+            )
+            previous_liquidity = self.ledger.get_liquidity_before(
+                position.token_address, rug_check_cutoff.isoformat()
+            )
             self._last_prices[position.token_address] = market.price_usd
             self.ledger.record_price_snapshot(
                 position.token_address, market.price_usd, market.liquidity_usd, market.volume_24h_usd
