@@ -385,6 +385,7 @@ class TradingEngine:
             previous_liquidity = self.ledger.get_liquidity_before(
                 position.token_address, rug_check_cutoff.isoformat()
             )
+            immediate_previous_liquidity = self.ledger.get_latest_liquidity(position.token_address)
             self._last_prices[position.token_address] = market.price_usd
             self.ledger.record_price_snapshot(
                 position.token_address, market.price_usd, market.liquidity_usd, market.volume_24h_usd
@@ -399,6 +400,7 @@ class TradingEngine:
                 market.liquidity_usd,
                 self.settings.exit,
                 previous_liquidity_usd=previous_liquidity,
+                immediate_previous_liquidity_usd=immediate_previous_liquidity,
             )
             if decision is None:
                 continue

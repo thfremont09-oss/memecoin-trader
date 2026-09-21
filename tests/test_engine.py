@@ -390,6 +390,32 @@ def test_recent_tick_liquidity_drop_does_not_trigger_sudden_rug(conn):
     assert positions[0].token_address == token
 
 
+def test_catastrophic_liquidity_drop_triggers_instant_exit(conn):
+    # Unlike the windowed sudden-drop check, the catastrophic check compares
+    # against the literal immediately-previous poll (however recent) so a
+    # true one-tick LP drain is still caught fast even right after entry.
+    engine, signal_source, market = build_engine(conn)
+    token = "TOKENHHHH111111111111111111111111111111111"
+
+    market.pairs[token] = make_pair(token_address=token, price_usd="1.0")  # default liquidity_usd="50000"
+    signal_source.queue = [make_signal(token_address=token, score=90)]
+    engine._poll_signals()
+    assert len(engine.ledger.get_open_positions()) == 1
+
+    # first management tick: records the only price snapshot so far
+    engine._manage_open_positions()
+    assert len(engine.ledger.get_open_positions()) == 1
+
+    # liquidity craters 80% an instant later -- past the 70% catastrophic bar
+    market.pairs[token] = make_pair(token_address=token, price_usd="1.0", liquidity_usd="10000")
+    engine._manage_open_positions()
+
+    assert engine.ledger.get_open_positions() == []
+    sell_trades = [t for t in engine.ledger.get_recent_trades() if t.side == "sell"]
+    assert len(sell_trades) == 1
+    assert sell_trades[0].reason == "liquidity_rug_catastrophic"
+
+
 def test_old_enough_liquidity_drop_still_triggers_sudden_rug(conn):
     from datetime import datetime, timedelta, timezone
 
@@ -410,8 +436,10 @@ def test_old_enough_liquidity_drop_still_triggers_sudden_rug(conn):
     )
     conn.commit()
 
-    # a genuine rug: liquidity collapses to a quarter of that old reading
-    market.pairs[token] = make_pair(token_address=token, price_usd="1.0", liquidity_usd="12500")
+    # a genuine rug: liquidity drops by half vs. that old reading -- past the
+    # 45% sudden-drop bar but under the 70% catastrophic-drop bar, so this
+    # exercises the windowed check specifically, not the instant one
+    market.pairs[token] = make_pair(token_address=token, price_usd="1.0", liquidity_usd="25000")
     engine._manage_open_positions()
 
     assert engine.ledger.get_open_positions() == []

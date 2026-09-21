@@ -16,7 +16,7 @@ from memecoin_trader.portfolio.models import Position
 
 @dataclass(frozen=True)
 class ExitDecision:
-    reason: str  # "liquidity_rug_sudden" | "liquidity_rug" | "stop_loss" | "take_profit_partial" | "trailing_stop" | "time_exit"
+    reason: str  # "liquidity_rug_catastrophic" | "liquidity_rug_sudden" | "liquidity_rug" | "stop_loss" | "take_profit_partial" | "trailing_stop" | "time_exit"
     fraction: Decimal  # fraction of the *current remaining* quantity to sell, 0 < fraction <= 1
     mark_take_profit_taken: bool = False
 
@@ -42,6 +42,7 @@ def evaluate_exit(
     config: ExitConfig,
     now: datetime | None = None,
     previous_liquidity_usd: Decimal | None = None,
+    immediate_previous_liquidity_usd: Decimal | None = None,
 ) -> ExitDecision | None:
     now = now or datetime.now(timezone.utc)
     entry = position.entry_price_usd
@@ -49,9 +50,22 @@ def evaluate_exit(
     if entry <= 0 or position.quantity <= 0:
         return None
 
-    # Catches an in-progress rug within a single polling interval, rather
-    # than waiting for the cumulative decline from entry (below) to cross
-    # its threshold — a liquidity pull can easily happen faster than that.
+    # Catches a genuine LP pull the instant it happens, comparing against
+    # the literal last poll (however recent) rather than waiting for the
+    # windowed check below — a real rug can drain a pool within a single
+    # tick. The bar is set high enough (70%+ in one tick) that ordinary
+    # thin-pool trade noise essentially never trips it; that's what the
+    # windowed check below is for.
+    if immediate_previous_liquidity_usd is not None and immediate_previous_liquidity_usd > 0:
+        catastrophic_drop_ratio = (
+            immediate_previous_liquidity_usd - current_liquidity_usd
+        ) / immediate_previous_liquidity_usd
+        if catastrophic_drop_ratio >= Decimal(str(config.catastrophic_liquidity_drop_pct)):
+            return ExitDecision(reason="liquidity_rug_catastrophic", fraction=Decimal(1))
+
+    # Catches an in-progress rug within a wider window, rather than waiting
+    # for the cumulative decline from entry (below) to cross its threshold —
+    # a liquidity pull can easily happen faster than that.
     if previous_liquidity_usd is not None and previous_liquidity_usd > 0:
         drop_ratio = (previous_liquidity_usd - current_liquidity_usd) / previous_liquidity_usd
         if drop_ratio >= Decimal(str(config.sudden_liquidity_drop_pct)):

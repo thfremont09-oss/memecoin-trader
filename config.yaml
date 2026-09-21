@@ -38,8 +38,8 @@ entry:
     enabled: true                    # query RugCheck.xyz before buying
     fail_closed: true                # if the check errors out or the token isn't indexed yet, skip the trade rather than assume it's safe
     max_danger_flags: 0              # any RugCheck "danger"-level finding blocks the trade by default
-    max_warning_flags: 3             # was 4 — even less tolerance for smaller red flags stacking up
-    min_lp_locked_pct: 65.0          # requires most LP actually locked/burned before trusting a pool — kept, this is a safety filter
+    max_warning_flags: 2             # was 3 — even less tolerance for smaller red flags stacking up, to buy fewer rug-prone tokens in the first place
+    min_lp_locked_pct: 75.0          # was 65 — requires more LP actually locked/burned before trusting a pool, on top of the catastrophic-drop exit above
 
   ml:
     enabled: true                    # the engine auto-trains a model once enough closed trades exist (see min_training_trades); a no-op gate until then
@@ -67,6 +67,7 @@ exit:
   max_hold_minutes: 240              # force exit after this long regardless
   liquidity_rug_fraction: 0.5        # trips the emergency liquidity-rug exit sooner — kept, this is a safety filter
   sudden_liquidity_drop_pct: 0.45    # was 0.35 — that was firing on ordinary thin-pool volatility, not just real rugs, once liquidity_rug_check_interval_seconds stopped being the same 5s window everything else refreshes on; still well below what a genuine LP pull looks like
+  catastrophic_liquidity_drop_pct: 0.70  # NEW: instant exit if liquidity craters this much vs. the literal last poll (any interval), independent of liquidity_rug_check_interval_seconds — a real LP pull can drain a pool within one tick, and widening the sudden-drop window above made that check slower to react to genuine fast rugs, not just noise. 70% in a single tick is far past anything normal trade-impact noise produces.
 
 execution:
   paper:

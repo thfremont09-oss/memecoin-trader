@@ -83,6 +83,7 @@ class ExitConfig:
     max_hold_minutes: float
     liquidity_rug_fraction: float
     sudden_liquidity_drop_pct: float
+    catastrophic_liquidity_drop_pct: float
 
 
 @dataclass(frozen=True)

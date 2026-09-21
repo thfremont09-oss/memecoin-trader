@@ -356,7 +356,7 @@ extra screening before a buy, all configurable under `entry:` in
   liquidity instantly), and other named risk flags. Any "danger"-level
   finding blocks the trade by default (`entry.rug_check.max_danger_flags`),
   and so does piling up too many smaller "warning"-level findings even with
-  zero danger flags (`entry.rug_check.max_warning_flags`, default 4). The
+  zero danger flags (`entry.rug_check.max_warning_flags`, default 2). The
   mint-authority and freeze-authority checks are also applied directly as
   their own hard block (`mint_authority_renounced`/`freeze_authority_renounced`
   is explicitly `False`) rather than relying only on RugCheck's own
@@ -368,7 +368,7 @@ extra screening before a buy, all configurable under `entry:` in
   the bot will simply stop buying anything until it's reachable again —
   check the logs for `rug check unavailable` if entries seem to have
   stopped. Set `fail_closed: false` if you'd rather it trade through that.
-- **LP-locked floor** (`entry.rug_check.min_lp_locked_pct`, default 65%):
+- **LP-locked floor** (`entry.rug_check.min_lp_locked_pct`, default 75%):
   requires at least this much LP actually locked/burned, when RugCheck
   reports it — an unlocked pool means the deployer can pull all liquidity
   whenever they want.
@@ -384,15 +384,26 @@ extra screening before a buy, all configurable under `entry:` in
   dumping pattern, not accumulation. This data was already being fetched and
   fed to the ML model as a feature; it just wasn't a rule-based filter until
   now.
+- **Catastrophic liquidity-drop exit** (`exit.catastrophic_liquidity_drop_pct`,
+  default 70%): for positions already held, an instant exit fires if
+  liquidity craters compared to the literal immediately-previous poll,
+  however recent that was — this is the fast path for a real LP pull, which
+  can drain a pool within a single tick. The bar is set high (70% in one
+  tick) so ordinary trade-impact noise essentially never trips it.
 - **Sudden liquidity-drop exit** (`exit.sudden_liquidity_drop_pct`, default
-  45%): for positions already held, an emergency exit fires if liquidity
-  drops sharply compared to a reading from `timing.liquidity_rug_check_interval_seconds`
-  ago (default 30s) — catching an in-progress rug faster than waiting for the
+  45%): a second, wider-window emergency exit fires if liquidity drops
+  sharply compared to a reading from `timing.liquidity_rug_check_interval_seconds`
+  ago (default 30s) — catching a rug that drains more gradually than the
+  catastrophic check's single-tick bar, still faster than waiting for the
   cumulative decline-from-entry check (`exit.liquidity_rug_fraction`, default
   50%) to cross its floor. This comparison window is deliberately decoupled
   from `timing.position_check_interval_seconds` (default 5s, tuned purely for
   how often the dashboard refreshes) — comparing two readings only 5s apart
   was firing on ordinary thin-pool price-impact noise, not just real rugs.
+  Between the two checks: a genuinely fast, near-total drain is caught
+  instantly by the catastrophic check regardless of how young the position
+  is; a rug that plays out a bit slower, or partially, is still caught by
+  the windowed check without either one flagging normal volatility.
 
 None of the above trades safety for trade volume — every extra signal
 source added still has to clear every one of these filters. The knobs that

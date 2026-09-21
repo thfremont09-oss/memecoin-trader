@@ -15,6 +15,7 @@ CONFIG = ExitConfig(
     max_hold_minutes=240,
     liquidity_rug_fraction=0.4,
     sudden_liquidity_drop_pct=0.5,
+    catastrophic_liquidity_drop_pct=0.7,
 )
 
 CONFIG_WITH_TIERS = dataclasses.replace(
@@ -143,6 +144,53 @@ def test_sudden_drop_ignored_without_a_previous_snapshot():
     position = make_position(entry_price="1.0", entry_liquidity="20000")
     decision = evaluate_exit(position, Decimal("1.0"), Decimal("9000"), CONFIG, previous_liquidity_usd=None)
     assert decision is None  # nothing to compare against yet (first check on this position)
+
+
+def test_catastrophic_drop_triggers_instantly_regardless_of_window():
+    # 75% gone vs. the literal last poll -- past the 70% catastrophic bar,
+    # even though the windowed previous_liquidity_usd isn't old enough yet
+    # (None here) for the 50%-over-a-window sudden check to apply at all.
+    position = make_position(entry_price="1.0", entry_liquidity="20000")
+    decision = evaluate_exit(
+        position,
+        Decimal("1.0"),
+        Decimal("5000"),
+        CONFIG,
+        previous_liquidity_usd=None,
+        immediate_previous_liquidity_usd=Decimal("20000"),
+    )
+    assert decision is not None
+    assert decision.reason == "liquidity_rug_catastrophic"
+    assert decision.fraction == Decimal(1)
+
+
+def test_catastrophic_drop_takes_priority_over_sudden_and_take_profit():
+    position = make_position(entry_price="1.0", entry_liquidity="20000")
+    decision = evaluate_exit(
+        position,
+        Decimal("2.0"),
+        Decimal("5000"),
+        CONFIG,
+        previous_liquidity_usd=Decimal("20000"),
+        immediate_previous_liquidity_usd=Decimal("20000"),
+    )
+    assert decision.reason == "liquidity_rug_catastrophic"
+
+
+def test_no_catastrophic_exit_below_the_bar():
+    # 60% drop vs. the last poll -- under the 70% catastrophic bar, so this
+    # falls through to the (also-not-triggering, no windowed snapshot yet)
+    # sudden check rather than firing instantly.
+    position = make_position(entry_price="1.0", entry_liquidity="20000")
+    decision = evaluate_exit(
+        position,
+        Decimal("1.0"),
+        Decimal("8000"),
+        CONFIG,
+        previous_liquidity_usd=None,
+        immediate_previous_liquidity_usd=Decimal("20000"),
+    )
+    assert decision is None
 
 
 def test_trailing_stop_tier_tightens_after_a_big_peak_gain():
