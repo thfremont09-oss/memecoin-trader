@@ -177,8 +177,14 @@
   .big-risk-status {
     margin-top: 12px; padding: 10px 12px; border-radius: 8px; font-size: 13px;
     background: rgba(239,91,91,0.1); border: 1px solid rgba(239,91,91,0.4); color: var(--text);
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
   }
   .big-risk-status strong { color: var(--red); }
+  .big-risk-mute-btn {
+    flex-shrink: 0; background: none; border: 1px solid var(--border); border-radius: 6px;
+    color: var(--muted); font-size: 14px; line-height: 1; padding: 5px 8px; cursor: pointer;
+  }
+  .big-risk-mute-btn:hover { border-color: var(--red); color: var(--text); }
   .siren-overlay {
     position: fixed; inset: 0; z-index: 1500; pointer-events: none;
   }
@@ -322,15 +328,18 @@
       position sizing, and every other safety filter stay fixed no matter
       where this is set.
     </div>
-    <div id="bigRiskStatus" class="big-risk-status" style="display: {{ 'block' if summary.big_risk.mode != 'idle' else 'none' }};">
-      {% if summary.big_risk.mode == 'searching' %}
-      🚨 <strong>SEARCHING</strong> for a target — resuming normal trading if nothing qualifies in time
-      {% elif summary.big_risk.mode == 'invested' and summary.big_risk.position %}
-      🚨 <strong>ALL IN on ${{ summary.big_risk.position.symbol }}</strong> —
-      entry ${{ "%.6f"|format(summary.big_risk.position.entry_price_usd) }},
-      now ${{ "%.6f"|format(summary.big_risk.position.current_price_usd) }}
-      ({{ "%+.1f"|format(summary.big_risk.position.unrealized_pnl_pct) }}%)
-      {% endif %}
+    <div id="bigRiskStatus" class="big-risk-status" style="display: {{ 'flex' if summary.big_risk.mode != 'idle' else 'none' }};">
+      <span id="bigRiskStatusText">
+        {% if summary.big_risk.mode == 'searching' %}
+        🚨 <strong>SEARCHING</strong> for a target — resuming normal trading if nothing qualifies in time
+        {% elif summary.big_risk.mode == 'invested' and summary.big_risk.position %}
+        🚨 <strong>ALL IN on ${{ summary.big_risk.position.symbol }}</strong> —
+        entry ${{ "%.6f"|format(summary.big_risk.position.entry_price_usd) }},
+        now ${{ "%.6f"|format(summary.big_risk.position.current_price_usd) }}
+        ({{ "%+.1f"|format(summary.big_risk.position.unrealized_pnl_pct) }}%)
+        {% endif %}
+      </span>
+      <button id="bigRiskMuteBtn" class="big-risk-mute-btn" type="button" title="Mute siren sound">🔊</button>
     </div>
   </div>
 
@@ -1192,8 +1201,7 @@
     if (bigRiskState.mode !== 'searching' || !bigRiskState.started_at) return;
     const deadline = new Date(bigRiskState.started_at).getTime() + bigRiskState.search_window_seconds * 1000;
     const secondsLeft = (deadline - Date.now()) / 1000;
-    const status = document.getElementById('bigRiskStatus');
-    status.innerHTML =
+    document.getElementById('bigRiskStatusText').innerHTML =
       `🚨 <strong>SEARCHING</strong> for a target — ${formatBigRiskCountdown(secondsLeft)} left ` +
       `before it gives up and resumes normal trading`;
   }
@@ -1202,34 +1210,164 @@
   // dial) is much slower than that.
   setInterval(tickBigRiskCountdown, 1000);
 
+  // ---- Siren sound --------------------------------------------------
+  // Synthesized with the Web Audio API (a tone oscillator wailed up and
+  // down by a slow LFO on its frequency) rather than an audio file --
+  // matches how everything else visual/audio here (mascots, confetti,
+  // dollar shower) is generated in code, no binary assets to ship.
+  let sirenAudioCtx = null;
+  let sirenOsc = null;
+  let sirenLfo = null;
+  let sirenGain = null;
+  let sirenLfoGain = null;
+  let sirenMuted = false;
+  try {
+    sirenMuted = localStorage.getItem('bigRiskSirenMuted') === '1';
+  } catch (err) {
+    // Private browsing / blocked storage -- default to unmuted for this session.
+  }
+
+  function updateMuteButtonLabel() {
+    const btn = document.getElementById('bigRiskMuteBtn');
+    btn.textContent = sirenMuted ? '🔇' : '🔊';
+    btn.title = sirenMuted ? 'Unmute siren sound' : 'Mute siren sound';
+  }
+  updateMuteButtonLabel();
+
+  function startSiren() {
+    if (sirenMuted || sirenOsc) return;
+    if (!sirenAudioCtx) {
+      try {
+        sirenAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      } catch (err) {
+        return;  // Web Audio unsupported -- the visual siren still works fine without it
+      }
+    }
+    if (sirenAudioCtx.state === 'suspended') {
+      sirenAudioCtx.resume().catch(() => {});  // blocked by autoplay policy until a user gesture unlocks it
+    }
+
+    const osc = sirenAudioCtx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.value = 750;
+
+    const lfo = sirenAudioCtx.createOscillator();
+    lfo.type = 'sine';
+    lfo.frequency.value = 0.8;  // one full wail up-and-down every ~1.25s
+
+    const lfoGain = sirenAudioCtx.createGain();
+    lfoGain.gain.value = 200;  // wail sweeps roughly 550-950Hz
+
+    const gainNode = sirenAudioCtx.createGain();
+    gainNode.gain.value = 0;
+
+    lfo.connect(lfoGain);
+    lfoGain.connect(osc.frequency);
+    osc.connect(gainNode);
+    gainNode.connect(sirenAudioCtx.destination);
+
+    const now = sirenAudioCtx.currentTime;
+    gainNode.gain.setValueAtTime(0, now);
+    gainNode.gain.linearRampToValueAtTime(0.1, now + 0.15);  // quick fade-in, no click
+
+    osc.start();
+    lfo.start();
+
+    sirenOsc = osc;
+    sirenLfo = lfo;
+    sirenGain = gainNode;
+    sirenLfoGain = lfoGain;
+  }
+
+  function stopSiren() {
+    if (!sirenOsc) return;
+    const ctx = sirenAudioCtx;
+    const osc = sirenOsc;
+    const lfo = sirenLfo;
+    const gainNode = sirenGain;
+    const lfoGainNode = sirenLfoGain;
+    sirenOsc = null;
+    sirenLfo = null;
+    sirenGain = null;
+    sirenLfoGain = null;
+
+    const now = ctx.currentTime;
+    gainNode.gain.cancelScheduledValues(now);
+    gainNode.gain.setValueAtTime(gainNode.gain.value, now);
+    gainNode.gain.linearRampToValueAtTime(0, now + 0.15);  // fade-out, no click
+    setTimeout(() => {
+      try { osc.stop(); } catch (err) {}
+      try { lfo.stop(); } catch (err) {}
+      osc.disconnect();
+      lfo.disconnect();
+      gainNode.disconnect();
+      lfoGainNode.disconnect();
+    }, 200);
+  }
+
+  document.getElementById('bigRiskMuteBtn').addEventListener('click', () => {
+    sirenMuted = !sirenMuted;
+    try {
+      localStorage.setItem('bigRiskSirenMuted', sirenMuted ? '1' : '0');
+    } catch (err) {
+      // Private browsing / blocked storage -- the toggle still works for this session.
+    }
+    updateMuteButtonLabel();
+    if (sirenMuted) {
+      stopSiren();
+    } else if (bigRiskState.mode !== 'idle') {
+      startSiren();
+    }
+  });
+
+  // Browsers block audio until a user gesture -- if the page loads
+  // straight into an already-active Big Risk mode (e.g. it was started
+  // from another tab), the very first click/key/tap anywhere unlocks it.
+  function unlockSirenOnFirstInteraction() {
+    const tryStart = () => {
+      if (bigRiskState.mode !== 'idle') startSiren();
+      document.removeEventListener('click', tryStart);
+      document.removeEventListener('keydown', tryStart);
+      document.removeEventListener('touchstart', tryStart);
+    };
+    document.addEventListener('click', tryStart);
+    document.addEventListener('keydown', tryStart);
+    document.addEventListener('touchstart', tryStart);
+  }
+  unlockSirenOnFirstInteraction();
+
   function renderBigRisk(s) {
     bigRiskState = s.big_risk;
     const btn = document.getElementById('bigRiskBtn');
-    const status = document.getElementById('bigRiskStatus');
+    const statusWrap = document.getElementById('bigRiskStatus');
+    const statusText = document.getElementById('bigRiskStatusText');
     const siren = document.getElementById('sirenOverlay');
 
     btn.classList.remove('is-active');
     siren.style.display = 'none';
-    status.style.display = 'none';
+    statusWrap.style.display = 'none';
 
     if (bigRiskState.mode === 'searching') {
       btn.innerHTML = 'ABORT';
       btn.classList.add('is-active');
       siren.style.display = 'block';
-      status.style.display = 'block';
+      statusWrap.style.display = 'flex';
       tickBigRiskCountdown();
+      startSiren();
     } else if (bigRiskState.mode === 'invested') {
       btn.innerHTML = 'SELL';
       btn.classList.add('is-active');
       siren.style.display = 'block';
-      status.style.display = 'block';
+      statusWrap.style.display = 'flex';
       const p = bigRiskState.position;
-      status.innerHTML = p
+      statusText.innerHTML = p
         ? `🚨 <strong>ALL IN on $${p.symbol}</strong> — entry $${fmt(p.entry_price_usd, 6)}, ` +
           `now $${fmt(p.current_price_usd, 6)} (${fmtSigned(p.unrealized_pnl_pct, 1)}%)`
         : `🚨 <strong>ALL IN</strong> — loading position...`;
+      startSiren();
     } else {
       btn.innerHTML = 'BIG<br>RISK';
+      stopSiren();
     }
   }
 
