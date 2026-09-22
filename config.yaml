@@ -72,15 +72,31 @@ exit:
 big_risk:
   # The dashboard's "BIG RISK" button: sell every open position immediately,
   # then spend up to search_window_seconds looking for one signal that
-  # clears the normal safety filters (RugCheck, liquidity, volume, age,
-  # the ML gate) -- but NOT the normal mention_score_threshold or position
-  # sizing -- and put the entire cash balance into it. Aborts back to
-  # normal multi-source trading if nothing clears the safety filters in
-  # time, or as soon as the one all-in position fully closes for any
-  # reason (this stop-loss, the normal rug/trailing/time exits, or a
-  # manual sell).
+  # clears a *deliberately loosened* set of safety filters below -- still
+  # real filters, just not as strict as normal.entry -- and puts the
+  # entire cash balance into it. Aborts back to normal multi-source
+  # trading if nothing clears the filters in time, or as soon as the one
+  # all-in position fully closes for any reason (this stop-loss, the
+  # normal rug/trailing/time exits, or a manual sell).
   search_window_seconds: 300         # 5 minutes to find a target before giving up
+  poll_interval_seconds: 15          # re-poll every 15s during the search, not the normal 45s (timing.signal_poll_interval_seconds) -- the window is short, so check more often
   stop_loss_pct: 0.15                # tighter than exit.stop_loss_pct (0.25) -- once all-in on the one gamble, cut losses faster
+
+  # Everything below is loosened vs. its entry.* equivalent so the search
+  # actually finds something within the window -- moderately less safe,
+  # not wide open: max_danger_flags stays 0 (any real RugCheck danger
+  # flag still blocks the buy), fail_closed still applies (an
+  # unverifiable token still gets skipped), and the mint/freeze-authority
+  # checks are hardcoded in entry_strategy.py regardless of config, so
+  # those unambiguous rug vectors are never bypassed here either.
+  min_liquidity_usd: 2500            # was entry.min_liquidity_usd (5000)
+  min_volume_24h_usd: 5000           # was entry.min_volume_24h_usd (10000)
+  min_liquidity_to_fdv_pct: 1.5      # was entry.min_liquidity_to_fdv_pct (3.0)
+  min_buy_sell_ratio: 1.0            # was entry.min_buy_sell_ratio (1.2) -- neutral instead of requiring net buy pressure
+  max_price_change_5m_pct: 300.0     # was entry.max_price_change_5m_pct (150) -- this mode chases momentum even mid-pump
+  max_warning_flags: 4               # was entry.rug_check.max_warning_flags (2)
+  min_lp_locked_pct: 50.0            # was entry.rug_check.min_lp_locked_pct (75)
+  ml_gate_enabled: false             # the ML confidence gate predicts normal-strategy trade quality, which contradicts this mode's whole point of grabbing whatever clears the safety bar
 
 execution:
   paper:

@@ -152,7 +152,8 @@
   }
   .btn-big-risk {
     position: relative; width: 78px; height: 78px; border-radius: 50%;
-    border: 3px solid #4a0404; cursor: pointer;
+    border: 3px solid #4a0404; cursor: pointer; padding: 0;
+    display: flex; align-items: center; justify-content: center;
     background: radial-gradient(circle at 35% 30%, #ff6b6b 0%, #d1242f 45%, #7a0d14 100%);
     box-shadow:
       0 4px 0 #5c0a0a, 0 7px 12px rgba(0,0,0,0.55),
@@ -1437,8 +1438,9 @@
       if (!confirm(
         `BIG RISK: sell every open position right now, then spend up to ${minutes} minute(s) ` +
         `hunting for one coin to put your ENTIRE cash balance into.\n\n` +
-        `This skips the normal hype-score bar (rug checks and liquidity filters still apply). ` +
-        `If nothing qualifies in time, it gives up and resumes normal trading. Continue?`
+        `This skips the normal hype-score bar and uses looser (not zero) safety filters -- ` +
+        `RugCheck's danger-flag veto still applies. If nothing qualifies in time, it gives up ` +
+        `and resumes normal trading. Continue?`
       )) return;
       postBigRiskAction('/api/big-risk/start', 'ARMING...');
     } else if (mode === 'searching') {

@@ -90,7 +90,16 @@ class ExitConfig:
 @dataclass(frozen=True)
 class BigRiskConfig:
     search_window_seconds: float
+    poll_interval_seconds: float
     stop_loss_pct: float
+    min_liquidity_usd: float
+    min_volume_24h_usd: float
+    min_liquidity_to_fdv_pct: float
+    min_buy_sell_ratio: float
+    max_price_change_5m_pct: float
+    max_warning_flags: int
+    min_lp_locked_pct: float
+    ml_gate_enabled: bool
 
 
 @dataclass(frozen=True)

@@ -639,11 +639,19 @@ A red hazard-striped button next to the caution slider. Clicking it:
 
 1. **Sells every open position immediately.**
 2. **Arms a search window** (`big_risk.search_window_seconds`, default 5
-   minutes) during which the engine polls every signal source exactly like
-   normal, but skips `entry.mention_score_threshold` and the usual position
-   sizing entirely — the first signal that clears every *other* safety
-   filter (RugCheck, liquidity/volume/age, buy/sell pressure, the ML gate
-   if enabled) gets the entire cash balance. Red siren lights flash across
+   minutes, re-polling every `big_risk.poll_interval_seconds` — 15s by
+   default, faster than the normal 45s poll since the window is short)
+   during which the engine polls every signal source, but against a
+   *deliberately loosened* set of filters (`big_risk.*` in `config.yaml`)
+   instead of the normal `entry.*` ones — no hype-score bar or usual
+   position sizing, lower liquidity/volume/LP-lock floors, more tolerance
+   for RugCheck warning flags, and the ML confidence gate is off entirely
+   (predicting normal-strategy trade quality contradicts a mode built to
+   grab whatever clears the safety bar). The first candidate that clears
+   what's left — a real RugCheck danger-flag veto, `fail_closed` behavior
+   if it can't be verified at all, and the hardcoded mint/freeze-authority
+   checks, none of which are loosened — gets the entire cash balance. Red
+   siren lights flash across
    the page while this is happening (with a synthesized air-raid-style
    siren sound — two detuned sawtooth oscillators for a buzzy "rotating
    horn" texture, swept slowly up and down by an LFO and rounded off by a

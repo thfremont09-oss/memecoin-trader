@@ -1,6 +1,7 @@
 """End-to-end test of one full buy-then-exit cycle through the real engine
 wiring (ledger + strategies + paper executor), with only the two outside
 inputs (Twitter signal, DexScreener market data) replaced by fakes."""
+import time
 from dataclasses import replace
 from decimal import Decimal
 
@@ -503,6 +504,84 @@ def test_big_risk_search_still_blocks_a_dangerous_rug_report(conn):
 
     assert engine.ledger.get_open_positions() == []
     assert engine.ledger.get_big_risk_state().mode == "searching"  # still looking
+
+
+def test_big_risk_search_accepts_liquidity_below_the_normal_entry_floor(conn):
+    engine, signal_source, market = build_engine(conn)
+    token = "TOKENRISK000000000000000000000000000000006"
+    # below entry.min_liquidity_usd (5000) but above big_risk.min_liquidity_usd (2500);
+    # fdv lowered too so the liquidity/FDV ratio (6%) clears both floors and isn't
+    # the thing actually being tested here
+    market.pairs[token] = make_pair(token_address=token, price_usd="1.0", liquidity_usd="3000", fdv_usd="50000")
+    signal_source.queue = [make_signal(token_address=token, score=5)]
+
+    engine.ledger.start_big_risk_search()
+    engine._big_risk_search()
+
+    assert len(engine.ledger.get_open_positions()) == 1
+    assert engine.ledger.get_big_risk_state().mode == "invested"
+
+
+def test_normal_poll_signals_rejects_the_same_liquidity_big_risk_would_accept(conn):
+    # confirms the two paths actually use different floors, not just that
+    # the number happens to clear both
+    engine, signal_source, market = build_engine(conn)
+    token = "TOKENRISK000000000000000000000000000000007"
+    market.pairs[token] = make_pair(token_address=token, price_usd="1.0", liquidity_usd="3000", fdv_usd="50000")
+    signal_source.queue = [make_signal(token_address=token, score=90)]
+
+    engine._poll_signals()
+
+    assert engine.ledger.get_open_positions() == []
+
+
+def test_big_risk_search_ignores_the_ml_confidence_gate(conn, tmp_path, monkeypatch):
+    monkeypatch.setattr("memecoin_trader.engine.MODEL_PATH", tmp_path / "model.joblib")
+
+    engine, signal_source, market = build_engine(conn)
+    engine.settings = replace(
+        engine.settings,
+        entry=replace(
+            engine.settings.entry,
+            ml=replace(engine.settings.entry.ml, enabled=True, min_confidence=0.99),
+        ),
+    )
+
+    class AlwaysLowConfidenceModel:
+        is_trained = True
+
+        def predict_proba(self, features):
+            return 0.01  # would fail entry.ml.min_confidence (0.99) by a mile
+
+    engine.ml_model = AlwaysLowConfidenceModel()
+
+    token = "TOKENRISK000000000000000000000000000000008"
+    market.pairs[token] = make_pair(token_address=token, price_usd="1.0")
+    signal_source.queue = [make_signal(token_address=token, score=5)]
+
+    engine.ledger.start_big_risk_search()
+    engine._big_risk_search()
+
+    assert len(engine.ledger.get_open_positions()) == 1  # big_risk.ml_gate_enabled=false bypassed it
+
+
+def test_tick_polls_big_risk_search_on_its_own_faster_interval(conn):
+    engine, signal_source, market = build_engine(conn)
+    token = "TOKENRISK000000000000000000000000000000009"
+    market.pairs[token] = make_pair(token_address=token, price_usd="1.0")
+    signal_source.queue = [make_signal(token_address=token, score=5)]
+
+    engine.ledger.start_big_risk_search()
+    # normal signal_poll_interval_seconds (45s) hasn't elapsed, but
+    # big_risk.poll_interval_seconds (15s) has -- the search should still fire
+    engine._last_signal_poll = time.time()
+    engine._last_big_risk_poll = time.time() - engine.settings.big_risk.poll_interval_seconds - 1
+    engine._last_position_check = 0.0
+    engine._last_equity_snapshot = 0.0
+
+    engine.tick()
+
+    assert len(engine.ledger.get_open_positions()) == 1
 
 
 def test_big_risk_search_times_out_and_resumes_normal_trading(conn):

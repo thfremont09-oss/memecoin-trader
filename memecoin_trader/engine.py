@@ -260,6 +260,7 @@ class TradingEngine:
         self._last_prices: dict[str, Decimal] = {}
         self._last_signal_poll = 0.0
         self._last_position_check = 0.0
+        self._last_big_risk_poll = 0.0
         self._last_equity_snapshot = 0.0
         self._last_ml_check = 0.0
         self._last_ml_train_dataset_size = 0
@@ -299,9 +300,9 @@ class TradingEngine:
             ):
                 logger.info("BIG RISK: no candidate cleared the safety filters in time — aborting to normal trading")
                 self.ledger.end_big_risk()
-            elif now - self._last_signal_poll >= self.settings.timing.signal_poll_interval_seconds:
+            elif now - self._last_big_risk_poll >= self.settings.big_risk.poll_interval_seconds:
                 self._big_risk_search()
-                self._last_signal_poll = now
+                self._last_big_risk_poll = now
         else:
             # "Offline" only stops new buys — existing positions still get
             # their stop-loss/trailing-stop/rug protection, and the equity
@@ -494,13 +495,13 @@ class TradingEngine:
 
     def _big_risk_search(self) -> None:
         """One search attempt for Big Risk mode: polls every signal source
-        exactly like the normal flow, but instead of the configured
-        mention_score_threshold and position sizing, any signal that clears
-        every other safety filter (RugCheck, liquidity, volume, age, buy/
-        sell pressure, the ML gate) gets the entire cash balance. Buys the
-        first one found and switches to "invested"; if nothing clears the
-        filters this attempt, tick() will call this again next poll until
-        the search window in tick() times out."""
+        exactly like the normal flow, but evaluates candidates against a
+        deliberately loosened set of filters (see big_risk.* in
+        config.yaml) instead of the normal entry.* ones, and any signal
+        that clears them gets the entire cash balance. Buys the first one
+        found and switches to "invested"; if nothing clears the filters
+        this attempt, tick() will call this again next poll until the
+        search window in tick() times out."""
         try:
             signals = self.signal_source.poll()
         except Exception:
@@ -508,18 +509,34 @@ class TradingEngine:
             return
 
         cash = self.ledger.get_cash_usd()
+        br = self.settings.big_risk
         # mention_score_threshold=-1 accepts any score (this mode chases
         # whatever's available within the window, not conviction);
         # position_size_pct_of_cash=0.97 + a max_trade_usd far above the
         # whole cash balance means evaluate_entry's own sizing math lands on
         # "as close to the entire cash balance as it can safely go" -- 100%
         # exactly would leave no room for the buy fee on top of it, and
-        # InsufficientCashError would reject every single attempt.
+        # InsufficientCashError would reject every single attempt. Every
+        # other override below trades some safety margin for actually
+        # finding a candidate within the window, per big_risk.* in
+        # config.yaml -- max_danger_flags, fail_closed, and the hardcoded
+        # mint/freeze-authority checks in entry_strategy.py are untouched.
         entry_config = dataclasses.replace(
             self.settings.entry,
             mention_score_threshold=-1.0,
             position_size_pct_of_cash=0.97,
             max_trade_usd=float(cash) * 10 + 1.0,
+            min_liquidity_usd=br.min_liquidity_usd,
+            min_volume_24h_usd=br.min_volume_24h_usd,
+            min_liquidity_to_fdv_pct=br.min_liquidity_to_fdv_pct,
+            min_buy_sell_ratio=br.min_buy_sell_ratio,
+            max_price_change_5m_pct=br.max_price_change_5m_pct,
+            rug_check=dataclasses.replace(
+                self.settings.entry.rug_check,
+                max_warning_flags=br.max_warning_flags,
+                min_lp_locked_pct=br.min_lp_locked_pct,
+            ),
+            ml=dataclasses.replace(self.settings.entry.ml, enabled=br.ml_gate_enabled),
         )
 
         for signal in signals:
