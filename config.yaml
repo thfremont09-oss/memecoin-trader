@@ -69,6 +69,19 @@ exit:
   sudden_liquidity_drop_pct: 0.45    # was 0.35 — that was firing on ordinary thin-pool volatility, not just real rugs, once liquidity_rug_check_interval_seconds stopped being the same 5s window everything else refreshes on; still well below what a genuine LP pull looks like
   catastrophic_liquidity_drop_pct: 0.70  # NEW: instant exit if liquidity craters this much vs. the literal last poll (any interval), independent of liquidity_rug_check_interval_seconds — a real LP pull can drain a pool within one tick, and widening the sudden-drop window above made that check slower to react to genuine fast rugs, not just noise. 70% in a single tick is far past anything normal trade-impact noise produces.
 
+big_risk:
+  # The dashboard's "BIG RISK" button: sell every open position immediately,
+  # then spend up to search_window_seconds looking for one signal that
+  # clears the normal safety filters (RugCheck, liquidity, volume, age,
+  # the ML gate) -- but NOT the normal mention_score_threshold or position
+  # sizing -- and put the entire cash balance into it. Aborts back to
+  # normal multi-source trading if nothing clears the safety filters in
+  # time, or as soon as the one all-in position fully closes for any
+  # reason (this stop-loss, the normal rug/trailing/time exits, or a
+  # manual sell).
+  search_window_seconds: 300         # 5 minutes to find a target before giving up
+  stop_loss_pct: 0.15                # tighter than exit.stop_loss_pct (0.25) -- once all-in on the one gamble, cut losses faster
+
 execution:
   paper:
     base_slippage_bps: 50            # 0.5% baseline slippage

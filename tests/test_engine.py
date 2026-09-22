@@ -465,3 +465,126 @@ def test_caution_level_changes_whether_a_borderline_signal_gets_bought(conn):
     engine.ledger.set_caution_level(5)
     engine._poll_signals()
     assert len(engine.ledger.get_open_positions()) == 1
+
+
+def test_big_risk_search_buys_first_qualifying_signal_ignoring_score_threshold(conn):
+    engine, signal_source, market = build_engine(conn)
+    token = "TOKENRISK000000000000000000000000000000001"
+    market.pairs[token] = make_pair(token_address=token, price_usd="1.0")
+    # score 5 -- nowhere near the normal mention_score_threshold (55) --
+    # Big Risk mode doesn't care, it just needs the safety filters to pass
+    signal_source.queue = [make_signal(token_address=token, score=5)]
+
+    engine.ledger.start_big_risk_search()
+    engine._big_risk_search()
+
+    positions = engine.ledger.get_open_positions()
+    assert len(positions) == 1
+    assert positions[0].token_address == token
+    # went (almost) all-in rather than the normal 15%-of-cash sizing
+    assert engine.ledger.get_cash_usd() < Decimal("5")
+
+    state = engine.ledger.get_big_risk_state()
+    assert state.mode == "invested"
+    assert state.position_id == positions[0].id
+
+
+def test_big_risk_search_still_blocks_a_dangerous_rug_report(conn):
+    engine, signal_source, market = build_engine(conn)
+    token = "TOKENRISK000000000000000000000000000000002"
+    market.pairs[token] = make_pair(token_address=token, price_usd="1.0")
+    engine.rug_client.reports[token] = make_rug_report(
+        token_address=token, danger_flags=("Mint authority not renounced",)
+    )
+    signal_source.queue = [make_signal(token_address=token, score=5)]
+
+    engine.ledger.start_big_risk_search()
+    engine._big_risk_search()
+
+    assert engine.ledger.get_open_positions() == []
+    assert engine.ledger.get_big_risk_state().mode == "searching"  # still looking
+
+
+def test_big_risk_search_times_out_and_resumes_normal_trading(conn):
+    from datetime import datetime, timedelta, timezone
+
+    engine, signal_source, market = build_engine(conn)
+    engine.ledger.start_big_risk_search()
+    too_old = datetime.now(timezone.utc) - timedelta(seconds=engine.settings.big_risk.search_window_seconds + 5)
+    engine.ledger._conn.execute(
+        "UPDATE portfolio_state SET big_risk_started_at = ? WHERE id = 1", (too_old.isoformat(),)
+    )
+    engine.ledger._conn.commit()
+    engine._last_signal_poll = 0.0
+    engine._last_position_check = 0.0
+    engine._last_equity_snapshot = 0.0
+
+    engine.tick()
+
+    assert engine.ledger.get_big_risk_state().mode == "idle"
+    assert engine.ledger.get_open_positions() == []
+
+
+def test_big_risk_search_aborts_if_trading_goes_offline_mid_search(conn):
+    engine, signal_source, market = build_engine(conn)
+    engine.ledger.start_big_risk_search()
+    engine.ledger.set_trading_enabled(False)
+
+    engine.tick()
+
+    assert engine.ledger.get_big_risk_state().mode == "idle"
+
+
+def test_tick_routes_to_big_risk_search_instead_of_normal_polling(conn):
+    engine, signal_source, market = build_engine(conn)
+    token = "TOKENRISK000000000000000000000000000000003"
+    market.pairs[token] = make_pair(token_address=token, price_usd="1.0")
+    signal_source.queue = [make_signal(token_address=token, score=5)]  # below the normal threshold
+
+    engine.ledger.start_big_risk_search()
+    engine._last_signal_poll = 0.0
+    engine._last_position_check = 0.0
+    engine._last_equity_snapshot = 0.0
+
+    engine.tick()
+
+    positions = engine.ledger.get_open_positions()
+    assert len(positions) == 1  # bought despite score 5, which normal _poll_signals would have rejected
+    assert engine.ledger.get_big_risk_state().mode == "invested"
+
+
+def test_big_risk_invested_position_uses_a_tighter_stop_loss(conn):
+    engine, signal_source, market = build_engine(conn)
+    token = "TOKENRISK000000000000000000000000000000004"
+    market.pairs[token] = make_pair(token_address=token, price_usd="1.0")
+    signal_source.queue = [make_signal(token_address=token, score=90)]
+    engine._poll_signals()  # a normal buy stands in for "the search found this one"
+    position = engine.ledger.get_open_positions()[0]
+    engine.ledger.set_big_risk_invested(position.id)
+
+    # an 18% drop clears big_risk.stop_loss_pct (0.15) but not the normal
+    # exit.stop_loss_pct (0.25) -- only the tighter Big Risk threshold
+    # should be able to explain this exit
+    market.pairs[token] = make_pair(token_address=token, price_usd="0.82")
+    engine._big_risk_manage_position(engine.ledger.get_big_risk_state())
+
+    assert engine.ledger.get_open_positions() == []
+    sell_trades = [t for t in engine.ledger.get_recent_trades() if t.side == "sell"]
+    assert sell_trades[0].reason == "stop_loss"
+    assert engine.ledger.get_big_risk_state().mode == "idle"  # resumed normal trading
+
+
+def test_big_risk_manage_position_resumes_normal_trading_once_closed_elsewhere(conn):
+    engine, signal_source, market = build_engine(conn)
+    token = "TOKENRISK000000000000000000000000000000005"
+    market.pairs[token] = make_pair(token_address=token, price_usd="1.0")
+    signal_source.queue = [make_signal(token_address=token, score=90)]
+    engine._poll_signals()
+    position = engine.ledger.get_open_positions()[0]
+    engine.ledger.set_big_risk_invested(position.id)
+
+    engine.liquidate_position(token, reason="manual_sell")  # e.g. the per-position Sell button
+
+    engine._big_risk_manage_position(engine.ledger.get_big_risk_state())
+
+    assert engine.ledger.get_big_risk_state().mode == "idle"

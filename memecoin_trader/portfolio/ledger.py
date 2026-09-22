@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 
 from memecoin_trader.execution.base import FillResult
-from memecoin_trader.portfolio.models import PortfolioState, Position, Trade
+from memecoin_trader.portfolio.models import BigRiskState, PortfolioState, Position, Trade
 from memecoin_trader.signals.base import SocialSignal
 
 MIN_CAUTION_LEVEL = 1
@@ -159,6 +159,48 @@ class Ledger:
             (level, _now_iso()),
         )
         return level
+
+    # ------------------------------------------------------------ big risk
+
+    def get_big_risk_state(self) -> BigRiskState:
+        row = self._conn.execute(
+            "SELECT big_risk_mode, big_risk_started_at, big_risk_position_id FROM portfolio_state WHERE id = 1"
+        ).fetchone()
+        return BigRiskState(
+            mode=row["big_risk_mode"],
+            started_at=_parse_dt(row["big_risk_started_at"]) if row["big_risk_started_at"] else None,
+            position_id=row["big_risk_position_id"],
+        )
+
+    def start_big_risk_search(self) -> None:
+        """Arms Big Risk mode: the engine now spends up to
+        big_risk.search_window_seconds looking for one signal to go all-in
+        on instead of its normal multi-source strategy. Call sites are
+        expected to have already sold every open position first (the
+        dashboard's BIG RISK button does this via liquidate_all)."""
+        self._conn.execute(
+            "UPDATE portfolio_state SET big_risk_mode = 'searching', big_risk_started_at = ?, "
+            "big_risk_position_id = NULL, updated_at = ? WHERE id = 1",
+            (_now_iso(), _now_iso()),
+        )
+
+    def set_big_risk_invested(self, position_id: int) -> None:
+        self._conn.execute(
+            "UPDATE portfolio_state SET big_risk_mode = 'invested', big_risk_position_id = ?, "
+            "updated_at = ? WHERE id = 1",
+            (position_id, _now_iso()),
+        )
+
+    def end_big_risk(self) -> None:
+        """Back to idle -- the engine resumes its normal multi-source
+        strategy on its very next tick. Called when the search window
+        times out with no candidate, trading goes offline mid-search, or
+        the all-in position fully closes for any reason."""
+        self._conn.execute(
+            "UPDATE portfolio_state SET big_risk_mode = 'idle', big_risk_started_at = NULL, "
+            "big_risk_position_id = NULL, updated_at = ? WHERE id = 1",
+            (_now_iso(),),
+        )
 
     # ------------------------------------------------------------ positions
 

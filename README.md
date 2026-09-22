@@ -633,6 +633,38 @@ python -m memecoin_trader.cli caution
 python -m memecoin_trader.cli caution 2
 ```
 
+## BIG RISK
+
+A red hazard-striped button next to the caution slider. Clicking it:
+
+1. **Sells every open position immediately.**
+2. **Arms a search window** (`big_risk.search_window_seconds`, default 5
+   minutes) during which the engine polls every signal source exactly like
+   normal, but skips `entry.mention_score_threshold` and the usual position
+   sizing entirely — the first signal that clears every *other* safety
+   filter (RugCheck, liquidity/volume/age, buy/sell pressure, the ML gate
+   if enabled) gets the entire cash balance. Red siren lights flash across
+   the page while this is happening, and a status banner shows a live
+   countdown.
+3. **If nothing clears the filters before the window runs out, it gives up
+   automatically** and the bot resumes its normal multi-source strategy —
+   nothing gets bought.
+4. **Once a target is found and bought, the sirens keep going** and the
+   status banner tracks the position's live P&L. It's still protected: the
+   normal rug-detection and trailing-stop/take-profit exits all still
+   apply, plus a dedicated, tighter stop-loss just for this mode
+   (`big_risk.stop_loss_pct`, default 15% vs. the normal 25%) — since
+   you're all-in on one coin, cutting losses faster matters more here.
+5. **The instant that position fully closes** — this stop-loss, a normal
+   exit, or a manual sell — **the bot resumes normal trading automatically.**
+
+The button doubles as a cancel/sell control depending on where things
+stand: **ABORT** while searching (calls off the hunt, nothing bought yet)
+or **SELL** while all-in (sells the position immediately, same as the
+per-position Sell button). Backed by `POST /api/big-risk/start` /
+`/cancel` / `/stop` and `TradingEngine._big_risk_search` /
+`_big_risk_manage_position` in `memecoin_trader/engine.py`.
+
 ## Machine learning
 
 `memecoin_trader/ml/` adds a small logistic-regression model that predicts,

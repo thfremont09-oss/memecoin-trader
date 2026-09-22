@@ -18,7 +18,10 @@ CREATE TABLE IF NOT EXISTS portfolio_state (
     starting_balance_usd TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     trading_enabled INTEGER NOT NULL DEFAULT 1,
-    caution_level INTEGER NOT NULL DEFAULT 3
+    caution_level INTEGER NOT NULL DEFAULT 3,
+    big_risk_mode TEXT NOT NULL DEFAULT 'idle',
+    big_risk_started_at TEXT,
+    big_risk_position_id INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS positions (
@@ -123,6 +126,14 @@ def init_db(conn: sqlite3.Connection, starting_balance_usd: Decimal) -> None:
     # Migration for DBs created before the caution-level slider existed.
     if not _column_exists(conn, "portfolio_state", "caution_level"):
         conn.execute("ALTER TABLE portfolio_state ADD COLUMN caution_level INTEGER NOT NULL DEFAULT 3")
+
+    # Migration for DBs created before the Big Risk mode existed.
+    if not _column_exists(conn, "portfolio_state", "big_risk_mode"):
+        conn.execute("ALTER TABLE portfolio_state ADD COLUMN big_risk_mode TEXT NOT NULL DEFAULT 'idle'")
+    if not _column_exists(conn, "portfolio_state", "big_risk_started_at"):
+        conn.execute("ALTER TABLE portfolio_state ADD COLUMN big_risk_started_at TEXT")
+    if not _column_exists(conn, "portfolio_state", "big_risk_position_id"):
+        conn.execute("ALTER TABLE portfolio_state ADD COLUMN big_risk_position_id INTEGER")
 
     row = conn.execute("SELECT 1 FROM portfolio_state WHERE id = 1").fetchone()
     if row is None:

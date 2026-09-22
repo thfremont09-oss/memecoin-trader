@@ -60,3 +60,10 @@ class PortfolioState:
     updated_at: datetime
     trading_enabled: bool
     caution_level: int
+
+
+@dataclass
+class BigRiskState:
+    mode: str  # "idle" | "searching" | "invested"
+    started_at: datetime | None
+    position_id: int | None

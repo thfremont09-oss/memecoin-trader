@@ -425,3 +425,42 @@ def test_get_price_series_for_position_bounds_by_start_and_end(ledger):
     assert [p["price_usd"] for p in bounded] == [0.5, 1.2]
 
     assert ledger.get_price_series_for_position(token, start_iso=well_after) == []
+
+
+def test_big_risk_state_defaults_to_idle(ledger):
+    state = ledger.get_big_risk_state()
+    assert state.mode == "idle"
+    assert state.started_at is None
+    assert state.position_id is None
+
+
+def test_start_big_risk_search_sets_searching_mode(ledger):
+    ledger.start_big_risk_search()
+    state = ledger.get_big_risk_state()
+    assert state.mode == "searching"
+    assert state.started_at is not None
+    assert state.position_id is None
+
+
+def test_set_big_risk_invested_records_the_position(ledger):
+    ledger.start_big_risk_search()
+    started_at = ledger.get_big_risk_state().started_at
+    position = _open(ledger)
+
+    ledger.set_big_risk_invested(position.id)
+    state = ledger.get_big_risk_state()
+    assert state.mode == "invested"
+    assert state.position_id == position.id
+    assert state.started_at == started_at  # unchanged -- still "since the button was pressed"
+
+
+def test_end_big_risk_resets_to_idle(ledger):
+    ledger.start_big_risk_search()
+    position = _open(ledger)
+    ledger.set_big_risk_invested(position.id)
+
+    ledger.end_big_risk()
+    state = ledger.get_big_risk_state()
+    assert state.mode == "idle"
+    assert state.started_at is None
+    assert state.position_id is None

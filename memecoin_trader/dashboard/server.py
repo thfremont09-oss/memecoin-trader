@@ -58,7 +58,7 @@ def _ledger() -> Ledger:
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request, range: str = "all", _auth: None = Depends(require_auth)):
     settings = load_settings()
-    summary = build_summary(_ledger(), equity_range=range)
+    summary = build_summary(_ledger(), settings, equity_range=range)
     return templates.TemplateResponse(
         request, "index.html", {"summary": summary, "mode": settings.mode}
     )
@@ -66,7 +66,7 @@ def index(request: Request, range: str = "all", _auth: None = Depends(require_au
 
 @app.get("/api/summary")
 def api_summary(range: str = "all", _auth: None = Depends(require_auth)):
-    return build_summary(_ledger(), equity_range=range)
+    return build_summary(_ledger(), load_settings(), equity_range=range)
 
 
 @app.get("/api/position/{position_id}")
@@ -75,6 +75,75 @@ def api_position_detail(position_id: int, _auth: None = Depends(require_auth)):
     if detail is None:
         raise HTTPException(status_code=404, detail="Position not found")
     return detail
+
+
+@app.post("/api/big-risk/start")
+def api_big_risk_start(_auth: None = Depends(require_auth)):
+    """The BIG RISK button: sells everything right now, then arms a
+    search window (big_risk.search_window_seconds) during which the
+    engine looks for one signal to put the entire cash balance into —
+    see TradingEngine._big_risk_search/_big_risk_manage_position for the
+    actual state machine. Built the same way api_offline is: a fresh
+    engine instance against the shared SQLite file, since the dashboard
+    and the running engine are separate processes.
+    """
+    from memecoin_trader.engine import create_engine
+
+    settings = load_settings()
+    engine = create_engine(settings)
+
+    state = engine.ledger.get_big_risk_state()
+    if state.mode != "idle":
+        return {"started": False, "mode": state.mode, "message": "Big Risk is already active."}
+
+    total = len(engine.ledger.get_open_positions())
+    closed = engine.liquidate_all(reason="big_risk_start") if total else 0
+    engine.ledger.start_big_risk_search()
+    return {
+        "started": True,
+        "mode": "searching",
+        "sold": closed,
+        "message": f"BIG RISK ARMED. Sold {closed} position(s) — scanning for a target...",
+    }
+
+
+@app.post("/api/big-risk/cancel")
+def api_big_risk_cancel(_auth: None = Depends(require_auth)):
+    """Cancels an in-progress search (before anything's been bought).
+    Once a position's been taken (mode "invested"), use /api/big-risk/stop
+    instead — there's an actual position to sell there, not just a
+    search to call off."""
+    ledger = _ledger()
+    state = ledger.get_big_risk_state()
+    if state.mode != "searching":
+        return {"cancelled": False, "mode": state.mode, "message": "No Big Risk search in progress."}
+    ledger.end_big_risk()
+    return {"cancelled": True, "mode": "idle", "message": "Big Risk search cancelled."}
+
+
+@app.post("/api/big-risk/stop")
+def api_big_risk_stop(_auth: None = Depends(require_auth)):
+    """Manually sells the Big Risk position early, same idea as the
+    per-position Sell button."""
+    from memecoin_trader.engine import create_engine
+
+    settings = load_settings()
+    engine = create_engine(settings)
+
+    state = engine.ledger.get_big_risk_state()
+    if state.mode != "invested" or state.position_id is None:
+        return {"sold": False, "message": "No Big Risk position to sell."}
+
+    position = engine.ledger.get_position_by_id(state.position_id)
+    if position is None or position.status != "open":
+        engine.ledger.end_big_risk()
+        return {"sold": False, "message": "That position isn't open anymore."}
+
+    sold = engine.liquidate_position(position.token_address, reason="big_risk_manual_sell")
+    if sold:
+        engine.ledger.end_big_risk()
+    message = "Sold." if sold else "Couldn't sell — no market data available right now. Try again shortly."
+    return {"sold": sold, "message": message}
 
 
 @app.post("/api/offline")

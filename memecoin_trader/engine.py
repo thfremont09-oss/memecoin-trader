@@ -12,7 +12,15 @@ from pathlib import Path
 
 from memecoin_trader.analysis.entry_strategy import EntryContext, effective_score, evaluate_entry
 from memecoin_trader.analysis.exit_strategy import evaluate_exit
-from memecoin_trader.config import DB_PATH, MODEL_PATH, TELEGRAM_SESSION_PATH, TWITTER_SESSION_PATH, EntryConfig, Settings
+from memecoin_trader.config import (
+    DB_PATH,
+    MODEL_PATH,
+    TELEGRAM_SESSION_PATH,
+    TWITTER_SESSION_PATH,
+    EntryConfig,
+    ExitConfig,
+    Settings,
+)
 from memecoin_trader.execution.base import Executor
 from memecoin_trader.execution.paper_executor import PaperExecutor
 from memecoin_trader.market.dexscreener import DexScreenerClient
@@ -21,6 +29,7 @@ from memecoin_trader.ml.features import extract_features
 from memecoin_trader.ml.model import TradeQualityModel
 from memecoin_trader.portfolio.db import get_connection, init_db
 from memecoin_trader.portfolio.ledger import CAUTION_LEVEL_LABELS, InsufficientCashError, Ledger
+from memecoin_trader.portfolio.models import BigRiskState, Position
 from memecoin_trader.signals.base import SignalSource, SocialSignal
 from memecoin_trader.signals.mock_source import MockTwitterSource
 from memecoin_trader.signals.twitter_source import TwitterAPISource
@@ -274,19 +283,39 @@ class TradingEngine:
 
     def tick(self) -> None:
         now = time.time()
-        # "Offline" only stops new buys — existing positions still get their
-        # stop-loss/trailing-stop/rug protection, and the equity chart keeps
-        # recording, regardless of this flag.
-        if (
-            self.ledger.is_trading_enabled()
-            and now - self._last_signal_poll >= self.settings.timing.signal_poll_interval_seconds
-        ):
-            self._poll_signals()
-            self._last_signal_poll = now
+        big_risk_state = self.ledger.get_big_risk_state()
 
-        if now - self._last_position_check >= self.settings.timing.position_check_interval_seconds:
-            self._manage_open_positions()
-            self._last_position_check = now
+        if big_risk_state.mode == "invested":
+            # A single all-in position takes the place of the normal
+            # multi-source buy/manage flow entirely until it fully closes.
+            self._big_risk_manage_position(big_risk_state)
+        elif big_risk_state.mode == "searching":
+            if not self.ledger.is_trading_enabled():
+                logger.info("BIG RISK: trading went offline mid-search — aborting to normal trading")
+                self.ledger.end_big_risk()
+            elif (
+                big_risk_state.started_at is not None
+                and now - big_risk_state.started_at.timestamp() >= self.settings.big_risk.search_window_seconds
+            ):
+                logger.info("BIG RISK: no candidate cleared the safety filters in time — aborting to normal trading")
+                self.ledger.end_big_risk()
+            elif now - self._last_signal_poll >= self.settings.timing.signal_poll_interval_seconds:
+                self._big_risk_search()
+                self._last_signal_poll = now
+        else:
+            # "Offline" only stops new buys — existing positions still get
+            # their stop-loss/trailing-stop/rug protection, and the equity
+            # chart keeps recording, regardless of this flag.
+            if (
+                self.ledger.is_trading_enabled()
+                and now - self._last_signal_poll >= self.settings.timing.signal_poll_interval_seconds
+            ):
+                self._poll_signals()
+                self._last_signal_poll = now
+
+            if now - self._last_position_check >= self.settings.timing.position_check_interval_seconds:
+                self._manage_open_positions()
+                self._last_position_check = now
 
         if now - self._last_equity_snapshot >= self.settings.timing.equity_snapshot_interval_seconds:
             self._record_equity()
@@ -396,62 +425,199 @@ class TradingEngine:
 
     def _manage_open_positions(self) -> None:
         for position in self.ledger.get_open_positions():
-            market = self.market.get_best_pair_for_token(self.settings.chain_id, position.token_address)
-            if market is None:
+            self._check_and_apply_exit(position, self.settings.exit)
+
+    def _check_and_apply_exit(self, position: Position, exit_config: ExitConfig) -> None:
+        """Runs one position through the exit rules and sells if it says to.
+
+        Split out from _manage_open_positions so Big Risk mode's single
+        all-in position can share every bit of this logic (price/liquidity
+        tracking, rug detection, trailing stop, etc.) while swapping in its
+        own tighter stop_loss_pct via a different `exit_config`.
+        """
+        market = self.market.get_best_pair_for_token(self.settings.chain_id, position.token_address)
+        if market is None:
+            logger.warning(
+                "no market data for open position %s (%s); skipping this check",
+                position.symbol,
+                position.token_address,
+            )
+            return
+
+        rug_check_cutoff = datetime.now(timezone.utc) - timedelta(
+            seconds=self.settings.timing.liquidity_rug_check_interval_seconds
+        )
+        previous_liquidity = self.ledger.get_liquidity_before(
+            position.token_address, rug_check_cutoff.isoformat()
+        )
+        immediate_previous_liquidity = self.ledger.get_latest_liquidity(position.token_address)
+        self._last_prices[position.token_address] = market.price_usd
+        self.ledger.record_price_snapshot(
+            position.token_address, market.price_usd, market.liquidity_usd, market.volume_24h_usd
+        )
+        self.ledger.update_peak_price(position, market.price_usd)
+        # re-fetch: peak may have just changed
+        position = self.ledger.get_open_position_for_token(position.token_address) or position
+
+        decision = evaluate_exit(
+            position,
+            market.price_usd,
+            market.liquidity_usd,
+            exit_config,
+            previous_liquidity_usd=previous_liquidity,
+            immediate_previous_liquidity_usd=immediate_previous_liquidity,
+        )
+        if decision is None:
+            return
+
+        sell_quantity = position.quantity * decision.fraction
+        logger.info(
+            "EXIT (%s): %s (%s) fraction=%s price=$%s",
+            decision.reason,
+            position.symbol,
+            position.token_address,
+            decision.fraction,
+            market.price_usd,
+        )
+        try:
+            fill = self.executor.sell(position.token_address, sell_quantity, market)
+            self.ledger.apply_sell(
+                position=position,
+                fraction=decision.fraction,
+                fill=fill,
+                reason=decision.reason,
+                mark_take_profit_taken=decision.mark_take_profit_taken,
+                mode=self.settings.mode,
+            )
+        except Exception:
+            logger.exception("sell execution failed for %s", position.symbol)
+
+    def _big_risk_search(self) -> None:
+        """One search attempt for Big Risk mode: polls every signal source
+        exactly like the normal flow, but instead of the configured
+        mention_score_threshold and position sizing, any signal that clears
+        every other safety filter (RugCheck, liquidity, volume, age, buy/
+        sell pressure, the ML gate) gets the entire cash balance. Buys the
+        first one found and switches to "invested"; if nothing clears the
+        filters this attempt, tick() will call this again next poll until
+        the search window in tick() times out."""
+        try:
+            signals = self.signal_source.poll()
+        except Exception:
+            logger.exception("BIG RISK: signal source poll failed")
+            return
+
+        cash = self.ledger.get_cash_usd()
+        # mention_score_threshold=-1 accepts any score (this mode chases
+        # whatever's available within the window, not conviction);
+        # position_size_pct_of_cash=0.97 + a max_trade_usd far above the
+        # whole cash balance means evaluate_entry's own sizing math lands on
+        # "as close to the entire cash balance as it can safely go" -- 100%
+        # exactly would leave no room for the buy fee on top of it, and
+        # InsufficientCashError would reject every single attempt.
+        entry_config = dataclasses.replace(
+            self.settings.entry,
+            mention_score_threshold=-1.0,
+            position_size_pct_of_cash=0.97,
+            max_trade_usd=float(cash) * 10 + 1.0,
+        )
+
+        for signal in signals:
+            market = self.market.get_best_pair_for_token(self.settings.chain_id, signal.token_address)
+            if market is not None:
+                self._last_prices[signal.token_address] = market.price_usd
+
+            corroborating_sources = self._corroborating_source_count(signal)
+            rug_report = self.rug_client.get_risk_report(signal.token_address)
+            if rug_report is None and entry_config.rug_check.enabled:
                 logger.warning(
-                    "no market data for open position %s (%s); skipping this check",
-                    position.symbol,
-                    position.token_address,
+                    "BIG RISK: rug check unavailable for %s (%s) — %s",
+                    signal.symbol,
+                    signal.token_address,
+                    "skipping (fail_closed)" if entry_config.rug_check.fail_closed
+                    else "proceeding without it (fail_closed=false)",
                 )
-                continue
 
-            rug_check_cutoff = datetime.now(timezone.utc) - timedelta(
-                seconds=self.settings.timing.liquidity_rug_check_interval_seconds
+            features = (
+                extract_features(signal, market, rug_report, corroborating_sources) if market is not None else None
             )
-            previous_liquidity = self.ledger.get_liquidity_before(
-                position.token_address, rug_check_cutoff.isoformat()
-            )
-            immediate_previous_liquidity = self.ledger.get_latest_liquidity(position.token_address)
-            self._last_prices[position.token_address] = market.price_usd
-            self.ledger.record_price_snapshot(
-                position.token_address, market.price_usd, market.liquidity_usd, market.volume_24h_usd
-            )
-            self.ledger.update_peak_price(position, market.price_usd)
-            # re-fetch: peak may have just changed
-            position = self.ledger.get_open_position_for_token(position.token_address) or position
+            ml_confidence = None
+            if (
+                features is not None
+                and entry_config.ml.enabled
+                and self.ml_model is not None
+                and self.ml_model.is_trained
+            ):
+                ml_confidence = self.ml_model.predict_proba(features)
 
-            decision = evaluate_exit(
-                position,
-                market.price_usd,
-                market.liquidity_usd,
-                self.settings.exit,
-                previous_liquidity_usd=previous_liquidity,
-                immediate_previous_liquidity_usd=immediate_previous_liquidity,
+            ctx = EntryContext(
+                cash_usd=cash,
+                open_position_count=len(self.ledger.get_open_positions()),
+                already_holds_token=self.ledger.get_open_position_for_token(signal.token_address) is not None,
+                token_on_cooldown=self.ledger.is_token_on_cooldown(
+                    signal.token_address, self.settings.timing.token_cooldown_minutes
+                ),
             )
+            decision = evaluate_entry(
+                signal,
+                market,
+                ctx,
+                entry_config,
+                rug_report=rug_report,
+                ml_confidence=ml_confidence,
+                corroborating_sources=corroborating_sources,
+            )
+            self.ledger.record_signal(signal, acted_on=decision is not None)
             if decision is None:
                 continue
 
-            sell_quantity = position.quantity * decision.fraction
             logger.info(
-                "EXIT (%s): %s (%s) fraction=%s price=$%s",
-                decision.reason,
-                position.symbol,
-                position.token_address,
-                decision.fraction,
-                market.price_usd,
+                "BIG RISK: target found — %s (%s) score=%.1f amount=$%s",
+                signal.symbol,
+                signal.token_address,
+                signal.score,
+                decision.amount_usd,
             )
             try:
-                fill = self.executor.sell(position.token_address, sell_quantity, market)
-                self.ledger.apply_sell(
-                    position=position,
-                    fraction=decision.fraction,
+                fill = self.executor.buy(signal.token_address, decision.amount_usd, market)
+                position = self.ledger.open_position(
+                    token_address=signal.token_address,
+                    symbol=market.symbol or signal.symbol,
+                    chain_id=self.settings.chain_id,
                     fill=fill,
-                    reason=decision.reason,
-                    mark_take_profit_taken=decision.mark_take_profit_taken,
+                    signal=signal,
+                    entry_liquidity_usd=market.liquidity_usd,
                     mode=self.settings.mode,
                 )
+                if features is not None:
+                    self.ledger.save_trade_features(position.id, features)
+            except InsufficientCashError as exc:
+                logger.warning("BIG RISK: skipped buy for %s: %s", signal.symbol, exc)
+                continue
             except Exception:
-                logger.exception("sell execution failed for %s", position.symbol)
+                logger.exception("BIG RISK: buy execution failed for %s", signal.symbol)
+                continue
+
+            self.ledger.set_big_risk_invested(position.id)
+            return  # found and bought our one coin — stop searching
+
+    def _big_risk_manage_position(self, state: BigRiskState) -> None:
+        position = self.ledger.get_position_by_id(state.position_id) if state.position_id is not None else None
+        if position is None or position.status != "open":
+            # Closed by some other path (a manual Sell, "Go offline"'s
+            # liquidate_all, or it simply isn't there) -- resume normal
+            # trading rather than staying stuck "invested" in nothing.
+            self.ledger.end_big_risk()
+            return
+
+        big_risk_exit_config = dataclasses.replace(
+            self.settings.exit, stop_loss_pct=self.settings.big_risk.stop_loss_pct
+        )
+        self._check_and_apply_exit(position, big_risk_exit_config)
+
+        if self.ledger.get_open_position_for_token(position.token_address) is None:
+            logger.info("BIG RISK: position closed — resuming normal trading")
+            self.ledger.end_big_risk()
 
     def liquidate_position(self, token_address: str, reason: str = "manual_sell") -> bool:
         """Sells one open position immediately at the current market price.

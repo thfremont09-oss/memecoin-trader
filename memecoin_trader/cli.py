@@ -50,7 +50,7 @@ def cmd_status(args: argparse.Namespace) -> int:
     conn = get_connection(DB_PATH)
     init_db(conn, Decimal(str(settings.starting_balance_usd)))
     ledger = Ledger(conn)
-    summary = build_summary(ledger)
+    summary = build_summary(ledger, settings)
 
     print(f"Mode:              {settings.mode}")
     print(f"Starting balance:  ${summary['starting_balance_usd']:.2f}")

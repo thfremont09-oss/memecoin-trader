@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
+from memecoin_trader.config import Settings
 from memecoin_trader.portfolio.ledger import CAUTION_LEVEL_LABELS, Ledger
 
 # The dashboard's equity-curve zoom presets, ordered zoomed-in to zoomed-out.
@@ -34,7 +35,7 @@ def _mark_price(ledger: Ledger, token_address: str, fallback: Decimal) -> Decima
     return price if price is not None else fallback
 
 
-def build_summary(ledger: Ledger, equity_range: str = "all") -> dict:
+def build_summary(ledger: Ledger, settings: Settings, equity_range: str = "all") -> dict:
     state = ledger.get_portfolio_state()
     open_positions = ledger.get_open_positions()
 
@@ -88,10 +89,32 @@ def build_summary(ledger: Ledger, equity_range: str = "all") -> dict:
         for t in ledger.get_recent_trades(limit=50)
     ]
 
+    big_risk_state = ledger.get_big_risk_state()
+    big_risk_position = None
+    if big_risk_state.position_id is not None:
+        bp = ledger.get_position_by_id(big_risk_state.position_id)
+        if bp is not None:
+            bp_price = _mark_price(ledger, bp.token_address, bp.entry_price_usd)
+            big_risk_position = {
+                "id": bp.id,
+                "symbol": bp.symbol,
+                "token_address": bp.token_address,
+                "entry_price_usd": float(bp.entry_price_usd),
+                "current_price_usd": float(bp_price),
+                "unrealized_pnl_usd": float(bp.unrealized_pnl_usd(bp_price)),
+                "unrealized_pnl_pct": bp.unrealized_pnl_pct(bp_price),
+            }
+
     return {
         "trading_enabled": state.trading_enabled,
         "caution_level": state.caution_level,
         "caution_label": CAUTION_LEVEL_LABELS.get(state.caution_level, str(state.caution_level)),
+        "big_risk": {
+            "mode": big_risk_state.mode,
+            "started_at": big_risk_state.started_at.isoformat() if big_risk_state.started_at else None,
+            "search_window_seconds": settings.big_risk.search_window_seconds,
+            "position": big_risk_position,
+        },
         "starting_balance_usd": float(state.starting_balance_usd),
         "cash_usd": float(state.cash_usd),
         "positions_value_usd": float(positions_value),

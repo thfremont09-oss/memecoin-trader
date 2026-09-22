@@ -88,6 +88,12 @@ class ExitConfig:
 
 
 @dataclass(frozen=True)
+class BigRiskConfig:
+    search_window_seconds: float
+    stop_loss_pct: float
+
+
+@dataclass(frozen=True)
 class PaperExecutionConfig:
     base_slippage_bps: float
     slippage_impact_factor: float
@@ -221,6 +227,7 @@ class Settings:
     timing: TimingConfig
     entry: EntryConfig
     exit: ExitConfig
+    big_risk: BigRiskConfig
     paper_execution: PaperExecutionConfig
     live_execution: LiveExecutionConfig
     mock_signal: MockSignalConfig
@@ -264,6 +271,7 @@ def load_settings(config_path: Path | None = None, env_path: Path | None = None)
     exit_raw = dict(raw["exit"])
     trailing_stop_tiers = [TrailingStopTier(**t) for t in exit_raw.pop("trailing_stop_tiers", [])]
     exit_cfg = ExitConfig(trailing_stop_tiers=trailing_stop_tiers, **exit_raw)
+    big_risk = BigRiskConfig(**raw["big_risk"])
     paper_exec = PaperExecutionConfig(**raw["execution"]["paper"])
     live_exec = LiveExecutionConfig(**raw["execution"]["live"])
     mock_signal = MockSignalConfig(**raw["signals"]["mock"])
@@ -302,6 +310,7 @@ def load_settings(config_path: Path | None = None, env_path: Path | None = None)
         timing=timing,
         entry=entry,
         exit=exit_cfg,
+        big_risk=big_risk,
         paper_execution=paper_exec,
         live_execution=live_exec,
         mock_signal=mock_signal,

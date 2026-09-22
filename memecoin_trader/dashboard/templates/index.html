@@ -120,23 +120,93 @@
   .modal h4 { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 8px 0; }
   .modal-loading, .modal-empty { color: var(--muted); font-size: 13px; padding: 20px 0; text-align: center; }
   .caution-panel { padding-bottom: 12px; }
+  .caution-row { display: flex; align-items: flex-start; gap: 20px; }
+  .caution-slider-col { flex: 1; min-width: 0; }
   .caution-slider {
-    -webkit-appearance: none; appearance: none; width: 100%; height: 6px;
-    border-radius: 3px; margin: 8px 0 6px 0; cursor: pointer;
+    -webkit-appearance: none; appearance: none; width: 100%; height: 4px;
+    border-radius: 2px; margin: 10px 0 6px 0; cursor: pointer;
     background: linear-gradient(to right, var(--green), var(--accent) 50%, var(--red));
   }
   .caution-slider::-webkit-slider-thumb {
-    -webkit-appearance: none; appearance: none; width: 20px; height: 20px; border-radius: 50%;
-    background: var(--text); border: 3px solid var(--bg); cursor: pointer;
+    -webkit-appearance: none; appearance: none; width: 15px; height: 15px; border-radius: 50%;
+    background: var(--text); border: 2px solid var(--bg); cursor: pointer;
   }
   .caution-slider::-moz-range-thumb {
-    width: 20px; height: 20px; border-radius: 50%;
-    background: var(--text); border: 3px solid var(--bg); cursor: pointer;
+    width: 15px; height: 15px; border-radius: 50%;
+    background: var(--text); border: 2px solid var(--bg); cursor: pointer;
   }
   .caution-ticks {
     display: flex; justify-content: space-between; color: var(--muted); font-size: 11px;
   }
   .caution-note { color: var(--muted); font-size: 12px; margin-top: 10px; }
+
+  /* ---- BIG RISK button + siren lights ---------------------------------- */
+  .big-risk-wrap {
+    position: relative; flex-shrink: 0; width: 96px; height: 96px;
+    display: flex; align-items: center; justify-content: center; margin-top: 4px;
+  }
+  .big-risk-wrap::before {
+    content: ""; position: absolute; inset: 0; border-radius: 50%;
+    background: repeating-conic-gradient(#f5c518 0deg 18deg, #17181c 18deg 36deg);
+    box-shadow: 0 3px 8px rgba(0,0,0,0.5);
+  }
+  .btn-big-risk {
+    position: relative; width: 78px; height: 78px; border-radius: 50%;
+    border: 3px solid #4a0404; cursor: pointer;
+    background: radial-gradient(circle at 35% 30%, #ff6b6b 0%, #d1242f 45%, #7a0d14 100%);
+    box-shadow:
+      0 4px 0 #5c0a0a, 0 7px 12px rgba(0,0,0,0.55),
+      inset 0 2px 4px rgba(255,255,255,0.35), inset 0 -6px 10px rgba(0,0,0,0.35);
+    color: #fff; font-weight: 800; font-size: 12px; letter-spacing: 0.03em;
+    text-transform: uppercase; line-height: 1.15; text-shadow: 0 1px 2px rgba(0,0,0,0.4);
+    transition: transform 0.05s ease, filter 0.15s ease;
+  }
+  .btn-big-risk:hover { filter: brightness(1.1); }
+  .btn-big-risk:active {
+    transform: translateY(3px);
+    box-shadow: 0 1px 0 #5c0a0a, 0 2px 6px rgba(0,0,0,0.5),
+      inset 0 2px 4px rgba(255,255,255,0.35), inset 0 -6px 10px rgba(0,0,0,0.35);
+  }
+  .btn-big-risk.is-active {
+    animation: bigRiskButtonPulse 1s infinite;
+  }
+  @keyframes bigRiskButtonPulse {
+    0%, 100% { box-shadow: 0 4px 0 #5c0a0a, 0 7px 12px rgba(0,0,0,0.55), inset 0 2px 4px rgba(255,255,255,0.35), inset 0 -6px 10px rgba(0,0,0,0.35), 0 0 0 0 rgba(239,91,91,0.6); }
+    50% { box-shadow: 0 4px 0 #5c0a0a, 0 7px 12px rgba(0,0,0,0.55), inset 0 2px 4px rgba(255,255,255,0.35), inset 0 -6px 10px rgba(0,0,0,0.35), 0 0 0 10px rgba(239,91,91,0); }
+  }
+  .big-risk-status {
+    margin-top: 12px; padding: 10px 12px; border-radius: 8px; font-size: 13px;
+    background: rgba(239,91,91,0.1); border: 1px solid rgba(239,91,91,0.4); color: var(--text);
+  }
+  .big-risk-status strong { color: var(--red); }
+  .siren-overlay {
+    position: fixed; inset: 0; z-index: 1500; pointer-events: none;
+  }
+  .siren-overlay::before {
+    content: ""; position: absolute; inset: 0;
+    background:
+      radial-gradient(ellipse 60% 40% at 0% 0%, rgba(220,38,38,0.45), transparent 60%),
+      radial-gradient(ellipse 60% 40% at 100% 0%, rgba(220,38,38,0.45), transparent 60%),
+      radial-gradient(ellipse 60% 40% at 0% 100%, rgba(220,38,38,0.3), transparent 60%),
+      radial-gradient(ellipse 60% 40% at 100% 100%, rgba(220,38,38,0.3), transparent 60%);
+    animation: sirenFlash 1s infinite ease-in-out;
+  }
+  @keyframes sirenFlash {
+    0%, 100% { opacity: 0.2; }
+    50% { opacity: 1; }
+  }
+  .siren-beacon {
+    position: fixed; top: 14px; width: 16px; height: 16px; border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #fff 0%, #ff3b3b 40%, #7a0d14 100%);
+    box-shadow: 0 0 16px 6px rgba(255,59,59,0.9);
+    animation: sirenBeaconBlink 1s ease-in-out infinite;
+  }
+  .siren-beacon.left { left: 14px; }
+  .siren-beacon.right { right: 14px; animation-delay: 0.5s; }
+  @keyframes sirenBeaconBlink {
+    0%, 100% { opacity: 0.25; transform: scale(0.85); }
+    50% { opacity: 1; transform: scale(1.2); }
+  }
   .range-row { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
   .range-btn {
     border: 1px solid var(--border); background: transparent; color: var(--muted);
@@ -228,22 +298,39 @@
       <h2>Caution level</h2>
       <span id="cautionLabel" class="change">{{ summary.caution_label }}</span>
     </div>
-    <input
-      type="range" id="cautionSlider" class="caution-slider"
-      min="1" max="5" step="1" value="{{ summary.caution_level }}"
-    >
-    <div class="caution-ticks">
-      <span>Very cautious</span>
-      <span>Cautious</span>
-      <span>Balanced</span>
-      <span>Active</span>
-      <span>Aggressive</span>
+    <div class="caution-row">
+      <div class="caution-slider-col">
+        <input
+          type="range" id="cautionSlider" class="caution-slider"
+          min="1" max="5" step="1" value="{{ summary.caution_level }}"
+        >
+        <div class="caution-ticks">
+          <span>Very cautious</span>
+          <span>Cautious</span>
+          <span>Balanced</span>
+          <span>Active</span>
+          <span>Aggressive</span>
+        </div>
+      </div>
+      <div class="big-risk-wrap" title="Sell everything and go all-in on one coin">
+        <button id="bigRiskBtn" class="btn-big-risk {{ 'is-active' if summary.big_risk.mode != 'idle' else '' }}" type="button">{% if summary.big_risk.mode == 'searching' %}ABORT{% elif summary.big_risk.mode == 'invested' %}SELL{% else %}BIG<br>RISK{% endif %}</button>
+      </div>
     </div>
     <div class="caution-note">
       Controls how often the bot buys new coins — the hype-score bar it
       requires and how soon it'll re-buy a token it just sold. Rug checks,
       position sizing, and every other safety filter stay fixed no matter
       where this is set.
+    </div>
+    <div id="bigRiskStatus" class="big-risk-status" style="display: {{ 'block' if summary.big_risk.mode != 'idle' else 'none' }};">
+      {% if summary.big_risk.mode == 'searching' %}
+      🚨 <strong>SEARCHING</strong> for a target — resuming normal trading if nothing qualifies in time
+      {% elif summary.big_risk.mode == 'invested' and summary.big_risk.position %}
+      🚨 <strong>ALL IN on ${{ summary.big_risk.position.symbol }}</strong> —
+      entry ${{ "%.6f"|format(summary.big_risk.position.entry_price_usd) }},
+      now ${{ "%.6f"|format(summary.big_risk.position.current_price_usd) }}
+      ({{ "%+.1f"|format(summary.big_risk.position.unrealized_pnl_pct) }}%)
+      {% endif %}
     </div>
   </div>
 
@@ -388,6 +475,11 @@
     <canvas id="clubCursorCanvas" width="64" height="56"></canvas>
   </div>
 
+  <div id="sirenOverlay" class="siren-overlay" style="display: {{ 'block' if summary.big_risk.mode != 'idle' else 'none' }};">
+    <div class="siren-beacon left"></div>
+    <div class="siren-beacon right"></div>
+  </div>
+
   <div id="positionModalOverlay" class="modal-overlay" style="display: none;">
     <div class="modal">
       <div class="modal-header">
@@ -411,6 +503,7 @@
   let lastEquityForConfetti = {{ summary.equity_usd }};
   let lastConfettiAt = 0;
   let lastSeenTradeId = {{ (summary.recent_trades[0].id if summary.recent_trades else 0)|tojson }};
+  let bigRiskState = {{ summary.big_risk|tojson }};
   const gridColor = '#1a1e27';
   const mutedColor = '#8b93a3';
 
@@ -1086,6 +1179,107 @@
     cautionLabel.textContent = s.caution_label;
   }
 
+  // ---- BIG RISK: sell everything, hunt for one coin, go all-in ----------
+
+  function formatBigRiskCountdown(secondsLeft) {
+    const clamped = Math.max(0, Math.round(secondsLeft));
+    const m = Math.floor(clamped / 60);
+    const sec = clamped % 60;
+    return `${m}:${String(sec).padStart(2, '0')}`;
+  }
+
+  function tickBigRiskCountdown() {
+    if (bigRiskState.mode !== 'searching' || !bigRiskState.started_at) return;
+    const deadline = new Date(bigRiskState.started_at).getTime() + bigRiskState.search_window_seconds * 1000;
+    const secondsLeft = (deadline - Date.now()) / 1000;
+    const status = document.getElementById('bigRiskStatus');
+    status.innerHTML =
+      `🚨 <strong>SEARCHING</strong> for a target — ${formatBigRiskCountdown(secondsLeft)} left ` +
+      `before it gives up and resumes normal trading`;
+  }
+  // A 1s local ticker so the countdown reads smoothly even when the
+  // dashboard's own refresh interval (up to 60s, via the refresh-speed
+  // dial) is much slower than that.
+  setInterval(tickBigRiskCountdown, 1000);
+
+  function renderBigRisk(s) {
+    bigRiskState = s.big_risk;
+    const btn = document.getElementById('bigRiskBtn');
+    const status = document.getElementById('bigRiskStatus');
+    const siren = document.getElementById('sirenOverlay');
+
+    btn.classList.remove('is-active');
+    siren.style.display = 'none';
+    status.style.display = 'none';
+
+    if (bigRiskState.mode === 'searching') {
+      btn.innerHTML = 'ABORT';
+      btn.classList.add('is-active');
+      siren.style.display = 'block';
+      status.style.display = 'block';
+      tickBigRiskCountdown();
+    } else if (bigRiskState.mode === 'invested') {
+      btn.innerHTML = 'SELL';
+      btn.classList.add('is-active');
+      siren.style.display = 'block';
+      status.style.display = 'block';
+      const p = bigRiskState.position;
+      status.innerHTML = p
+        ? `🚨 <strong>ALL IN on $${p.symbol}</strong> — entry $${fmt(p.entry_price_usd, 6)}, ` +
+          `now $${fmt(p.current_price_usd, 6)} (${fmtSigned(p.unrealized_pnl_pct, 1)}%)`
+        : `🚨 <strong>ALL IN</strong> — loading position...`;
+    } else {
+      btn.innerHTML = 'BIG<br>RISK';
+    }
+  }
+
+  // Deliberately not the shared postAction() helper: that one restores a
+  // fixed idle label in its `finally` block, which would stomp whatever
+  // label the post-refresh renderBigRisk() call just set for the *new*
+  // mode (e.g. clobbering "ABORT" back to "BIG RISK" right after a
+  // successful start).
+  async function postBigRiskAction(url, busyText) {
+    const btn = document.getElementById('bigRiskBtn');
+    btn.disabled = true;
+    btn.innerHTML = busyText;
+    try {
+      const resp = await fetch(url, { method: 'POST' });
+      if (resp.status === 401) {
+        alert('Unauthorized — refresh the page and log in again.');
+        return;
+      }
+      const data = await resp.json();
+      alert(data.message);
+      await refreshDashboard();  // renderBigRisk() here sets the correct label for the new mode
+    } catch (err) {
+      alert('Request failed: ' + err);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function bigRiskClick() {
+    const mode = bigRiskState.mode;
+    if (mode === 'idle') {
+      const minutes = Math.round(bigRiskState.search_window_seconds / 60);
+      if (!confirm(
+        `BIG RISK: sell every open position right now, then spend up to ${minutes} minute(s) ` +
+        `hunting for one coin to put your ENTIRE cash balance into.\n\n` +
+        `This skips the normal hype-score bar (rug checks and liquidity filters still apply). ` +
+        `If nothing qualifies in time, it gives up and resumes normal trading. Continue?`
+      )) return;
+      postBigRiskAction('/api/big-risk/start', 'ARMING...');
+    } else if (mode === 'searching') {
+      if (!confirm('Cancel the Big Risk search? Nothing has been bought yet.')) return;
+      postBigRiskAction('/api/big-risk/cancel', 'CANCELLING...');
+    } else if (mode === 'invested') {
+      if (!confirm('Sell the Big Risk position right now at the current market price?')) return;
+      postBigRiskAction('/api/big-risk/stop', 'SELLING...');
+    }
+  }
+
+  document.getElementById('bigRiskBtn').addEventListener('click', bigRiskClick);
+
   function updateChart(s) {
     isUp = s.total_return_usd >= 0;
     equityCurve = s.equity_curve.slice();
@@ -1266,6 +1460,7 @@
       renderTrades(s);
       renderPerformance(s);
       renderCaution(s);
+      renderBigRisk(s);
       renderRangeButtons(s);
       renderMascot(s);
       updateChart(s);

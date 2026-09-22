@@ -160,9 +160,104 @@ def test_dashboard_requires_auth_when_credentials_configured(client, monkeypatch
     assert c.post("/api/online").status_code == 401
     assert c.post("/api/sell/TOKEN1").status_code == 401
     assert c.post("/api/caution-level/4").status_code == 401
+    assert c.post("/api/big-risk/start").status_code == 401
+    assert c.post("/api/big-risk/cancel").status_code == 401
+    assert c.post("/api/big-risk/stop").status_code == 401
     assert c.get("/", auth=("alice", "wrong")).status_code == 401
     assert c.get("/", auth=("alice", "s3cret")).status_code == 200
     assert c.post("/api/online", auth=("alice", "s3cret")).status_code == 200
+
+
+def test_big_risk_start_with_no_open_positions(client):
+    c, db_path = client
+    resp = c.post("/api/big-risk/start")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data == {
+        "started": True, "mode": "searching", "sold": 0,
+        "message": "BIG RISK ARMED. Sold 0 position(s) — scanning for a target...",
+    }
+
+    conn = get_connection(db_path)
+    assert Ledger(conn).get_big_risk_state().mode == "searching"
+
+
+def test_big_risk_start_sells_existing_positions_first(client, monkeypatch):
+    c, db_path = client
+    token = "TOKENBIGRISK111111111111111111111111111111"
+    _seed_open_position(db_path, token)
+    monkeypatch.setattr(
+        DexScreenerClient, "get_best_pair_for_token", lambda self, chain_id, addr: make_pair(token_address=addr)
+    )
+
+    resp = c.post("/api/big-risk/start")
+    data = resp.json()
+    assert data["started"] is True
+    assert data["sold"] == 1
+
+    conn = get_connection(db_path)
+    assert Ledger(conn).get_open_positions() == []
+
+
+def test_big_risk_start_is_a_noop_while_already_active(client):
+    c, _ = client
+    c.post("/api/big-risk/start")
+    resp = c.post("/api/big-risk/start")
+    data = resp.json()
+    assert data == {"started": False, "mode": "searching", "message": "Big Risk is already active."}
+
+
+def test_big_risk_cancel_while_searching(client):
+    c, db_path = client
+    c.post("/api/big-risk/start")
+    resp = c.post("/api/big-risk/cancel")
+    assert resp.json() == {"cancelled": True, "mode": "idle", "message": "Big Risk search cancelled."}
+
+    conn = get_connection(db_path)
+    assert Ledger(conn).get_big_risk_state().mode == "idle"
+
+
+def test_big_risk_cancel_with_nothing_to_cancel(client):
+    c, _ = client
+    resp = c.post("/api/big-risk/cancel")
+    assert resp.json() == {"cancelled": False, "mode": "idle", "message": "No Big Risk search in progress."}
+
+
+def test_big_risk_stop_with_no_position(client):
+    c, _ = client
+    resp = c.post("/api/big-risk/stop")
+    assert resp.json() == {"sold": False, "message": "No Big Risk position to sell."}
+
+
+def test_big_risk_stop_sells_the_invested_position(client, monkeypatch):
+    c, db_path = client
+    token = "TOKENBIGRISK222222222222222222222222222222"
+    _seed_open_position(db_path, token)
+    conn = get_connection(db_path)
+    ledger = Ledger(conn)
+    position = ledger.get_open_position_for_token(token)
+    ledger.set_big_risk_invested(position.id)
+    conn.close()
+
+    monkeypatch.setattr(
+        DexScreenerClient, "get_best_pair_for_token", lambda self, chain_id, addr: make_pair(token_address=addr)
+    )
+
+    resp = c.post("/api/big-risk/stop")
+    assert resp.json() == {"sold": True, "message": "Sold."}
+
+    conn = get_connection(db_path)
+    assert Ledger(conn).get_open_positions() == []
+    assert Ledger(conn).get_big_risk_state().mode == "idle"
+
+
+def test_api_summary_includes_big_risk_state(client):
+    c, _ = client
+    resp = c.get("/api/summary")
+    data = resp.json()
+    assert data["big_risk"]["mode"] == "idle"
+    assert data["big_risk"]["position"] is None
+    assert data["big_risk"]["search_window_seconds"] > 0
 
 
 def test_index_renders_caution_slider_at_default_level(client):
