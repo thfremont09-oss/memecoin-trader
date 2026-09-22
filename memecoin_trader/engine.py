@@ -502,6 +502,19 @@ class TradingEngine:
         found and switches to "invested"; if nothing clears the filters
         this attempt, tick() will call this again next poll until the
         search window in tick() times out."""
+        already_open = self.ledger.get_open_positions()
+        if already_open:
+            # Should only happen if a previous call bought something but
+            # crashed/errored before reaching set_big_risk_invested() below
+            # -- rather than buying a second coin on top of it, recognize
+            # we're already invested.
+            logger.warning(
+                "BIG RISK: an open position already exists mid-search (%s) — adopting it instead of buying another",
+                already_open[0].symbol,
+            )
+            self.ledger.set_big_risk_invested(already_open[0].id)
+            return
+
         try:
             signals = self.signal_source.poll()
         except Exception:
@@ -606,8 +619,6 @@ class TradingEngine:
                     entry_liquidity_usd=market.liquidity_usd,
                     mode=self.settings.mode,
                 )
-                if features is not None:
-                    self.ledger.save_trade_features(position.id, features)
             except InsufficientCashError as exc:
                 logger.warning("BIG RISK: skipped buy for %s: %s", signal.symbol, exc)
                 continue
@@ -615,24 +626,50 @@ class TradingEngine:
                 logger.exception("BIG RISK: buy execution failed for %s", signal.symbol)
                 continue
 
+            # The buy is real and the money's spent -- everything from here
+            # on is best-effort. A failure saving ML features must NOT fall
+            # through to "keep searching" (that's how a stray, unprotected,
+            # untracked position happened before this comment existed: the
+            # buy succeeded, save_trade_features() then raised, the shared
+            # except above swallowed it as if the whole buy had failed, and
+            # the loop moved on to buy *another* coin without ever calling
+            # set_big_risk_invested() for the first one).
+            if features is not None:
+                try:
+                    self.ledger.save_trade_features(position.id, features)
+                except Exception:
+                    logger.exception(
+                        "BIG RISK: failed to save trade features for %s (position still opened)", signal.symbol
+                    )
+
             self.ledger.set_big_risk_invested(position.id)
             return  # found and bought our one coin — stop searching
 
     def _big_risk_manage_position(self, state: BigRiskState) -> None:
-        position = self.ledger.get_position_by_id(state.position_id) if state.position_id is not None else None
-        if position is None or position.status != "open":
+        """Protects every currently open position with the tighter Big Risk
+        stop-loss, not just the one `state.position_id` names.
+
+        There should only ever be one -- _big_risk_search() stops searching
+        the instant it buys something -- but applying the same protection
+        to whatever's actually open (rather than trusting position_id
+        alone) means a stray second position from any bug or race can
+        never end up unmonitored while Big Risk mode is "invested"."""
+        positions = self.ledger.get_open_positions()
+        if not positions:
             # Closed by some other path (a manual Sell, "Go offline"'s
             # liquidate_all, or it simply isn't there) -- resume normal
             # trading rather than staying stuck "invested" in nothing.
+            logger.info("BIG RISK: position closed — resuming normal trading")
             self.ledger.end_big_risk()
             return
 
         big_risk_exit_config = dataclasses.replace(
             self.settings.exit, stop_loss_pct=self.settings.big_risk.stop_loss_pct
         )
-        self._check_and_apply_exit(position, big_risk_exit_config)
+        for position in positions:
+            self._check_and_apply_exit(position, big_risk_exit_config)
 
-        if self.ledger.get_open_position_for_token(position.token_address) is None:
+        if not self.ledger.get_open_positions():
             logger.info("BIG RISK: position closed — resuming normal trading")
             self.ledger.end_big_risk()
 

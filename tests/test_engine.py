@@ -490,6 +490,88 @@ def test_big_risk_search_buys_first_qualifying_signal_ignoring_score_threshold(c
     assert state.position_id == positions[0].id
 
 
+def test_big_risk_search_still_transitions_to_invested_if_feature_saving_fails(conn, monkeypatch):
+    # Regression test: save_trade_features() raising used to be caught by
+    # the same except block as the buy itself, so the loop treated an
+    # already-successful buy as a failed attempt and kept searching --
+    # buying a second (and third, ...) coin without ever marking any of
+    # them "invested". Exactly one buy should happen and it should always
+    # end up tracked, no matter what save_trade_features() does.
+    engine, signal_source, market = build_engine(conn)
+    token = "TOKENRISK000000000000000000000000000000010"
+    market.pairs[token] = make_pair(token_address=token, price_usd="1.0")
+    signal_source.queue = [make_signal(token_address=token, score=5)]
+
+    def raise_error(position_id, features):
+        raise RuntimeError("disk full, or whatever")
+
+    monkeypatch.setattr(engine.ledger, "save_trade_features", raise_error)
+
+    engine.ledger.start_big_risk_search()
+    engine._big_risk_search()
+
+    positions = engine.ledger.get_open_positions()
+    assert len(positions) == 1
+    state = engine.ledger.get_big_risk_state()
+    assert state.mode == "invested"
+    assert state.position_id == positions[0].id
+
+
+def test_big_risk_search_adopts_a_stray_open_position_instead_of_buying_another(conn):
+    engine, signal_source, market = build_engine(conn)
+    existing_token = "TOKENRISK000000000000000000000000000000011"
+    other_token = "TOKENRISK000000000000000000000000000000012"
+
+    # Simulates the aftermath of the bug above: a position already open
+    # while big_risk_mode is still "searching".
+    market.pairs[existing_token] = make_pair(token_address=existing_token, price_usd="1.0")
+    signal_source.queue = [make_signal(token_address=existing_token, score=90)]
+    engine._poll_signals()
+    stray = engine.ledger.get_open_positions()[0]
+
+    market.pairs[other_token] = make_pair(token_address=other_token, price_usd="1.0")
+    signal_source.queue = [make_signal(token_address=other_token, score=90)]
+    engine.ledger.start_big_risk_search()
+    engine._big_risk_search()
+
+    positions = engine.ledger.get_open_positions()
+    assert len(positions) == 1  # no second coin bought
+    assert positions[0].token_address == existing_token
+    state = engine.ledger.get_big_risk_state()
+    assert state.mode == "invested"
+    assert state.position_id == stray.id
+
+
+def test_big_risk_manage_position_protects_every_open_position(conn):
+    # Defense in depth: even if more than one position were ever open
+    # during "invested" mode, every one of them should still get the
+    # tighter Big Risk stop-loss, not just the one state.position_id names.
+    engine, signal_source, market = build_engine(conn)
+    token_a = "TOKENRISK000000000000000000000000000000013"
+    token_b = "TOKENRISK000000000000000000000000000000014"
+
+    market.pairs[token_a] = make_pair(token_address=token_a, price_usd="1.0")
+    signal_source.queue = [make_signal(token_address=token_a, score=90)]
+    engine._poll_signals()
+    position_a = engine.ledger.get_open_positions()[0]
+
+    market.pairs[token_b] = make_pair(token_address=token_b, price_usd="1.0")
+    signal_source.queue = [make_signal(token_address=token_b, score=90)]
+    engine._poll_signals()
+
+    # only position_a is "the" tracked big-risk position...
+    engine.ledger.set_big_risk_invested(position_a.id)
+
+    # ...but both get an 18% drop, past big_risk.stop_loss_pct (0.15)
+    market.pairs[token_a] = make_pair(token_address=token_a, price_usd="0.82")
+    market.pairs[token_b] = make_pair(token_address=token_b, price_usd="0.82")
+
+    engine._big_risk_manage_position(engine.ledger.get_big_risk_state())
+
+    assert engine.ledger.get_open_positions() == []  # both protected, not just position_a
+    assert engine.ledger.get_big_risk_state().mode == "idle"
+
+
 def test_big_risk_search_still_blocks_a_dangerous_rug_report(conn):
     engine, signal_source, market = build_engine(conn)
     token = "TOKENRISK000000000000000000000000000000002"
