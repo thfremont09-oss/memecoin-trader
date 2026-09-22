@@ -644,10 +644,12 @@ A red hazard-striped button next to the caution slider. Clicking it:
    sizing entirely — the first signal that clears every *other* safety
    filter (RugCheck, liquidity/volume/age, buy/sell pressure, the ML gate
    if enabled) gets the entire cash balance. Red siren lights flash across
-   the page while this is happening (with a synthesized wailing siren
-   sound — a tone oscillator swept by an LFO via the Web Audio API, no
-   audio file involved — mutable with the 🔊 button on the status banner,
-   which remembers your preference), and a status banner shows a live
+   the page while this is happening (with a synthesized air-raid-style
+   siren sound — two detuned sawtooth oscillators for a buzzy "rotating
+   horn" texture, swept slowly up and down by an LFO and rounded off by a
+   lowpass filter, via the Web Audio API — no audio file involved —
+   mutable with the 🔊 button on the status banner, which remembers your
+   preference), and a status banner shows a live
    countdown.
 3. **If nothing clears the filters before the window runs out, it gives up
    automatically** and the bot resumes its normal multi-source strategy —

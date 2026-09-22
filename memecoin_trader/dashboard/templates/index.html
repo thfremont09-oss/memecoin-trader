@@ -1211,15 +1211,22 @@
   setInterval(tickBigRiskCountdown, 1000);
 
   // ---- Siren sound --------------------------------------------------
-  // Synthesized with the Web Audio API (a tone oscillator wailed up and
-  // down by a slow LFO on its frequency) rather than an audio file --
-  // matches how everything else visual/audio here (mascots, confetti,
-  // dollar shower) is generated in code, no binary assets to ship.
+  // A real civil-defense air-raid siren is a rotating horn: a buzzy,
+  // harmonically-rich tone that sweeps slowly (several seconds per cycle)
+  // up to a wail and back down -- not a fast, clean police-style yelp.
+  // Synthesized with the Web Audio API (two slightly-detuned sawtooth
+  // oscillators, for the "rotating horn" thickness, swept by a slow LFO
+  // and rounded off by a lowpass filter so it wails instead of buzzing
+  // like a dial tone) rather than an audio file -- matches how everything
+  // else visual/audio here (mascots, confetti, dollar shower) is
+  // generated in code, no binary assets to ship.
   let sirenAudioCtx = null;
-  let sirenOsc = null;
+  let sirenOscA = null;
+  let sirenOscB = null;
   let sirenLfo = null;
   let sirenGain = null;
   let sirenLfoGain = null;
+  let sirenFilter = null;
   let sirenMuted = false;
   try {
     sirenMuted = localStorage.getItem('bigRiskSirenMuted') === '1';
@@ -1235,7 +1242,7 @@
   updateMuteButtonLabel();
 
   function startSiren() {
-    if (sirenMuted || sirenOsc) return;
+    if (sirenMuted || sirenOscA) return;
     if (!sirenAudioCtx) {
       try {
         sirenAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
@@ -1243,65 +1250,92 @@
         return;  // Web Audio unsupported -- the visual siren still works fine without it
       }
     }
-    if (sirenAudioCtx.state === 'suspended') {
-      sirenAudioCtx.resume().catch(() => {});  // blocked by autoplay policy until a user gesture unlocks it
+    const ctx = sirenAudioCtx;
+    if (ctx.state === 'suspended') {
+      ctx.resume().catch(() => {});  // blocked by autoplay policy until a user gesture unlocks it
     }
 
-    const osc = sirenAudioCtx.createOscillator();
-    osc.type = 'sine';
-    osc.frequency.value = 750;
+    const oscA = ctx.createOscillator();
+    oscA.type = 'sawtooth';
+    oscA.frequency.value = 500;
+    const oscB = ctx.createOscillator();
+    oscB.type = 'sawtooth';
+    oscB.frequency.value = 500;
+    oscB.detune.value = 9;  // slightly out of tune with oscA -- the "two-horn" beating thickness of a real siren
 
-    const lfo = sirenAudioCtx.createOscillator();
+    // A slow sine LFO sweeps both oscillators' pitch up and back down over
+    // ~5.5s -- the classic rise-and-fall cadence of an actual air-raid
+    // siren, not a rapid warble.
+    const lfo = ctx.createOscillator();
     lfo.type = 'sine';
-    lfo.frequency.value = 0.8;  // one full wail up-and-down every ~1.25s
+    lfo.frequency.value = 0.18;
+    const lfoGain = ctx.createGain();
+    lfoGain.gain.value = 260;  // sweeps roughly 240-760Hz around the 500Hz center
 
-    const lfoGain = sirenAudioCtx.createGain();
-    lfoGain.gain.value = 200;  // wail sweeps roughly 550-950Hz
+    // Rounds the sawtooth's harsh top end into a horn-like wail instead of
+    // a buzzy digital screech.
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 1500;
+    filter.Q.value = 0.7;
 
-    const gainNode = sirenAudioCtx.createGain();
+    const gainNode = ctx.createGain();
     gainNode.gain.value = 0;
 
     lfo.connect(lfoGain);
-    lfoGain.connect(osc.frequency);
-    osc.connect(gainNode);
-    gainNode.connect(sirenAudioCtx.destination);
+    lfoGain.connect(oscA.frequency);
+    lfoGain.connect(oscB.frequency);
+    oscA.connect(filter);
+    oscB.connect(filter);
+    filter.connect(gainNode);
+    gainNode.connect(ctx.destination);
 
-    const now = sirenAudioCtx.currentTime;
+    const now = ctx.currentTime;
     gainNode.gain.setValueAtTime(0, now);
-    gainNode.gain.linearRampToValueAtTime(0.1, now + 0.15);  // quick fade-in, no click
+    gainNode.gain.linearRampToValueAtTime(0.16, now + 0.3);  // fade-in, no click
 
-    osc.start();
+    oscA.start();
+    oscB.start();
     lfo.start();
 
-    sirenOsc = osc;
+    sirenOscA = oscA;
+    sirenOscB = oscB;
     sirenLfo = lfo;
     sirenGain = gainNode;
     sirenLfoGain = lfoGain;
+    sirenFilter = filter;
   }
 
   function stopSiren() {
-    if (!sirenOsc) return;
+    if (!sirenOscA) return;
     const ctx = sirenAudioCtx;
-    const osc = sirenOsc;
+    const oscA = sirenOscA;
+    const oscB = sirenOscB;
     const lfo = sirenLfo;
     const gainNode = sirenGain;
     const lfoGainNode = sirenLfoGain;
-    sirenOsc = null;
+    const filterNode = sirenFilter;
+    sirenOscA = null;
+    sirenOscB = null;
     sirenLfo = null;
     sirenGain = null;
     sirenLfoGain = null;
+    sirenFilter = null;
 
     const now = ctx.currentTime;
     gainNode.gain.cancelScheduledValues(now);
     gainNode.gain.setValueAtTime(gainNode.gain.value, now);
     gainNode.gain.linearRampToValueAtTime(0, now + 0.15);  // fade-out, no click
     setTimeout(() => {
-      try { osc.stop(); } catch (err) {}
+      try { oscA.stop(); } catch (err) {}
+      try { oscB.stop(); } catch (err) {}
       try { lfo.stop(); } catch (err) {}
-      osc.disconnect();
+      oscA.disconnect();
+      oscB.disconnect();
       lfo.disconnect();
       gainNode.disconnect();
       lfoGainNode.disconnect();
+      filterNode.disconnect();
     }, 200);
   }
 
