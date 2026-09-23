@@ -260,6 +260,53 @@ def test_api_summary_includes_big_risk_state(client):
     assert data["big_risk"]["search_window_seconds"] > 0
 
 
+def test_search_tokens_returns_empty_for_a_blank_query(client):
+    c, _ = client
+    resp = c.get("/api/search?q=")
+    assert resp.status_code == 200
+    assert resp.json() == {"results": []}
+
+
+def test_search_tokens_returns_sorted_dexscreener_results(client, monkeypatch):
+    c, _ = client
+    low = make_pair(token_address="TOKENLOW00000000000000000000000000000000001", symbol="LOW", liquidity_usd="1000")
+    high = make_pair(token_address="TOKENHIGH0000000000000000000000000000000001", symbol="HIGH", liquidity_usd="90000")
+    monkeypatch.setattr(DexScreenerClient, "search", lambda self, query, chain_id=None: [low, high])
+
+    resp = c.get("/api/search?q=meme")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert [r["symbol"] for r in data["results"]] == ["HIGH", "LOW"]  # highest liquidity first
+
+
+def test_manual_buy_opens_a_position(client, monkeypatch):
+    c, db_path = client
+    token = "TOKEN5555555555555555555555555555555555556"
+    monkeypatch.setattr(
+        DexScreenerClient, "get_best_pair_for_token", lambda self, chain_id, addr: make_pair(token_address=addr)
+    )
+
+    resp = c.post(f"/api/manual-buy/{token}?amount_usd=25")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["bought"] is True
+
+    conn = get_connection(db_path)
+    positions = Ledger(conn).get_open_positions()
+    assert len(positions) == 1
+    assert positions[0].token_address == token
+    assert positions[0].signal_source == "manual"
+
+
+def test_manual_buy_with_no_market_data(client):
+    c, _ = client
+    resp = c.post("/api/manual-buy/NOT_A_REAL_TOKEN?amount_usd=25")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["bought"] is False
+    assert "market data" in data["message"]
+
+
 def test_index_renders_caution_slider_at_default_level(client):
     c, _ = client
     resp = c.get("/")

@@ -18,6 +18,7 @@ from fastapi.templating import Jinja2Templates
 from starlette.requests import Request
 
 from memecoin_trader.config import DB_PATH, load_settings
+from memecoin_trader.market.dexscreener import DexScreenerClient
 from memecoin_trader.portfolio.db import get_connection, init_db
 from memecoin_trader.portfolio.ledger import CAUTION_LEVEL_LABELS, Ledger
 from memecoin_trader.reporting import build_position_detail, build_summary
@@ -144,6 +145,51 @@ def api_big_risk_stop(_auth: None = Depends(require_auth)):
         engine.ledger.end_big_risk()
     message = "Sold." if sold else "Couldn't sell — no market data available right now. Try again shortly."
     return {"sold": sold, "message": message}
+
+
+@app.get("/api/search")
+def api_search_tokens(q: str, _auth: None = Depends(require_auth)):
+    """Backs the "Manual buy" panel's search box -- DexScreener's public
+    search, matching by name/symbol/address, restricted to the configured
+    chain and sorted by liquidity (highest first, so the real token tends
+    to rank above copycat/scam clones sharing the same ticker)."""
+    query = q.strip()
+    if not query:
+        return {"results": []}
+
+    settings = load_settings()
+    pairs = DexScreenerClient().search(query, chain_id=settings.chain_id)
+    pairs.sort(key=lambda p: p.liquidity_usd, reverse=True)
+    results = [
+        {
+            "token_address": p.token_address,
+            "symbol": p.symbol,
+            "name": p.name,
+            "price_usd": float(p.price_usd),
+            "liquidity_usd": float(p.liquidity_usd),
+            "volume_24h_usd": float(p.volume_24h_usd),
+            "price_change_24h_pct": p.price_change_24h_pct,
+            "age_minutes": p.age_minutes,
+            "dex_id": p.dex_id,
+        }
+        for p in pairs[:15]
+    ]
+    return {"results": results}
+
+
+@app.post("/api/manual-buy/{token_address}")
+def api_manual_buy(token_address: str, amount_usd: float, _auth: None = Depends(require_auth)):
+    """The "Manual buy" panel's Buy button: buys a specific, user-picked
+    token for a user-picked dollar amount, bypassing the algorithmic entry
+    filters entirely -- see TradingEngine.manual_buy for why. Once bought
+    it's an ordinary position, protected by the normal exit rules from
+    the engine's very next tick."""
+    from memecoin_trader.engine import create_engine
+
+    settings = load_settings()
+    engine = create_engine(settings)
+    bought, message = engine.manual_buy(token_address, Decimal(str(amount_usd)))
+    return {"bought": bought, "message": message}
 
 
 @app.post("/api/offline")

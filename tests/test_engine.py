@@ -766,3 +766,99 @@ def test_big_risk_manage_position_resumes_normal_trading_once_closed_elsewhere(c
     engine._big_risk_manage_position(engine.ledger.get_big_risk_state())
 
     assert engine.ledger.get_big_risk_state().mode == "idle"
+
+
+def test_manual_buy_opens_a_position_bypassing_entry_filters(conn):
+    engine, signal_source, market = build_engine(conn)
+    token = "TOKENMANUAL00000000000000000000000000000001"
+    # thin liquidity that the normal entry filters (min_liquidity_usd
+    # 5000) would reject outright -- manual buy doesn't care
+    market.pairs[token] = make_pair(token_address=token, price_usd="1.0", liquidity_usd="100", fdv_usd="1000")
+
+    bought, message = engine.manual_buy(token, Decimal("25"))
+
+    assert bought is True
+    assert "25" in message
+    positions = engine.ledger.get_open_positions()
+    assert len(positions) == 1
+    assert positions[0].token_address == token
+    assert positions[0].signal_source == "manual"
+
+
+def test_manual_buy_rejects_non_positive_amount(conn):
+    engine, signal_source, market = build_engine(conn)
+    token = "TOKENMANUAL00000000000000000000000000000002"
+    market.pairs[token] = make_pair(token_address=token)
+
+    bought, message = engine.manual_buy(token, Decimal("0"))
+
+    assert bought is False
+    assert engine.ledger.get_open_positions() == []
+
+
+def test_manual_buy_rejects_amount_over_available_cash(conn):
+    engine, signal_source, market = build_engine(conn)
+    token = "TOKENMANUAL00000000000000000000000000000003"
+    market.pairs[token] = make_pair(token_address=token)
+
+    bought, message = engine.manual_buy(token, Decimal("500"))
+
+    assert bought is False
+    assert "cash available" in message
+    assert engine.ledger.get_open_positions() == []
+
+
+def test_manual_buy_rejects_a_token_already_held(conn):
+    engine, signal_source, market = build_engine(conn)
+    token = "TOKENMANUAL00000000000000000000000000000004"
+    market.pairs[token] = make_pair(token_address=token)
+    signal_source.queue = [make_signal(token_address=token, score=90)]
+    engine._poll_signals()
+    assert len(engine.ledger.get_open_positions()) == 1
+
+    bought, message = engine.manual_buy(token, Decimal("10"))
+
+    assert bought is False
+    assert "already have an open position" in message
+    assert len(engine.ledger.get_open_positions()) == 1
+
+
+def test_manual_buy_rejects_while_big_risk_is_active(conn):
+    engine, signal_source, market = build_engine(conn)
+    token = "TOKENMANUAL00000000000000000000000000000005"
+    market.pairs[token] = make_pair(token_address=token)
+    engine.ledger.start_big_risk_search()
+
+    bought, message = engine.manual_buy(token, Decimal("10"))
+
+    assert bought is False
+    assert "Big Risk" in message
+    assert engine.ledger.get_open_positions() == []
+
+
+def test_manual_buy_fails_gracefully_with_no_market_data(conn):
+    engine, signal_source, market = build_engine(conn)
+    bought, message = engine.manual_buy("TOKENMANUAL00000000000000000000000000000006", Decimal("10"))
+
+    assert bought is False
+    assert "market data" in message
+    assert engine.ledger.get_open_positions() == []
+
+
+def test_manual_buy_position_gets_normal_exit_protection_afterward(conn):
+    # Confirms "once bought, the code takes over" -- a manually-bought
+    # position is managed by the exact same _manage_open_positions() path
+    # as a signal-driven one, no special-casing.
+    engine, signal_source, market = build_engine(conn)
+    token = "TOKENMANUAL00000000000000000000000000000007"
+    market.pairs[token] = make_pair(token_address=token, price_usd="1.0")
+
+    bought, _ = engine.manual_buy(token, Decimal("20"))
+    assert bought is True
+
+    market.pairs[token] = make_pair(token_address=token, price_usd="0.70")  # 30% drop -- past the 25% stop-loss
+    engine._manage_open_positions()
+
+    assert engine.ledger.get_open_positions() == []
+    sell_trades = [t for t in engine.ledger.get_recent_trades() if t.side == "sell"]
+    assert sell_trades[0].reason == "stop_loss"

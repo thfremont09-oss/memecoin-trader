@@ -46,6 +46,31 @@
   }
   .btn-sell:hover { background: rgba(239, 91, 91, 0.12); }
   .btn-sell:disabled { opacity: 0.4; cursor: default; background: transparent; }
+  .btn-buy {
+    background: transparent; color: var(--green); border: 1px solid var(--green);
+    padding: 4px 10px; font-size: 12px; border-radius: 6px; cursor: pointer; font-weight: 600;
+    white-space: nowrap;
+  }
+  .btn-buy:hover { background: rgba(62, 207, 142, 0.12); }
+  .btn-buy:disabled { opacity: 0.4; cursor: default; background: transparent; }
+  .manual-buy-search-row { display: flex; gap: 8px; margin-bottom: 4px; }
+  .manual-buy-search-row input[type="text"] {
+    flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text); padding: 8px 10px; font-size: 13px;
+  }
+  .manual-buy-search-row input[type="text"]:focus { outline: none; border-color: var(--accent); }
+  .btn-search {
+    background: var(--accent); color: #fff; border: none; border-radius: 8px;
+    padding: 8px 16px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap;
+  }
+  .btn-search:hover { filter: brightness(1.1); }
+  .btn-search:disabled { opacity: 0.5; cursor: default; filter: none; }
+  .manual-amount-input {
+    width: 80px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text); padding: 4px 8px; font-size: 12px;
+  }
+  .manual-amount-input:focus { outline: none; border-color: var(--accent); }
+  .manual-buy-note { color: var(--muted); font-size: 12px; margin-top: 8px; }
   .button-row { display: flex; gap: 8px; align-items: center; }
   .badge {
     display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px;
@@ -388,6 +413,22 @@
       {% endfor %}
     </div>
     <canvas id="equityChart"></canvas>
+  </div>
+
+  <div class="panel">
+    <h2>Manual buy</h2>
+    <div class="manual-buy-search-row">
+      <input type="text" id="manualSearchInput" placeholder="Token address or symbol...">
+      <button id="manualSearchBtn" class="btn-search" type="button">Search</button>
+    </div>
+    <div id="manualSearchResults"></div>
+    <div class="manual-buy-note">
+      Search DexScreener for a coin and buy it yourself, any amount you want —
+      this skips every automated filter (hype score, rug check, liquidity
+      minimums). Once bought, it's an ordinary position: the normal
+      stop-loss/take-profit/trailing-stop/rug-detection exits protect it
+      from the very next check, same as any other.
+    </div>
   </div>
 
   <div class="panel">
@@ -1729,6 +1770,138 @@
 
   document.querySelectorAll('.btn-sell').forEach((btn) => {
     btn.addEventListener('click', () => sellOne(btn));
+  });
+
+  // ---- Manual buy: search DexScreener, buy a self-chosen amount --------
+
+  function formatAge(minutes) {
+    if (minutes === null || minutes === undefined) return '—';
+    if (minutes < 60) return `${Math.round(minutes)}m`;
+    if (minutes < 60 * 24) return `${Math.round(minutes / 60)}h`;
+    return `${Math.round(minutes / (60 * 24))}d`;
+  }
+
+  async function manualSearch() {
+    const input = document.getElementById('manualSearchInput');
+    const query = input.value.trim();
+    const container = document.getElementById('manualSearchResults');
+    if (!query) {
+      container.innerHTML = '';
+      return;
+    }
+    const btn = document.getElementById('manualSearchBtn');
+    btn.disabled = true;
+    btn.textContent = 'Searching...';
+    container.innerHTML = '<div class="empty">Searching...</div>';
+    try {
+      const resp = await fetch('/api/search?q=' + encodeURIComponent(query));
+      if (resp.status === 401) {
+        alert('Unauthorized — refresh the page and log in again.');
+        return;
+      }
+      const data = await resp.json();
+      renderManualSearchResults(data.results || []);
+    } catch (err) {
+      container.innerHTML = '<div class="empty">Search failed — try again.</div>';
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Search';
+    }
+  }
+
+  function renderManualSearchResults(results) {
+    const container = document.getElementById('manualSearchResults');
+    container.innerHTML = '';
+    if (!results.length) {
+      const empty = document.createElement('div');
+      empty.className = 'empty';
+      empty.textContent = 'No matches on DexScreener.';
+      container.appendChild(empty);
+      return;
+    }
+    const table = document.createElement('table');
+    const header = document.createElement('tr');
+    ['Symbol', 'Price', 'Liquidity', 'Vol 24h', 'Age', '24h', 'Amount ($)', ''].forEach((h) => {
+      const th = document.createElement('th');
+      th.textContent = h;
+      header.appendChild(th);
+    });
+    table.appendChild(header);
+    results.forEach((r) => {
+      const row = document.createElement('tr');
+      row.appendChild(cell(r.symbol));
+      row.appendChild(cell('$' + fmt(r.price_usd, 6)));
+      row.appendChild(cell('$' + Number(r.liquidity_usd).toLocaleString(undefined, { maximumFractionDigits: 0 })));
+      row.appendChild(cell('$' + Number(r.volume_24h_usd).toLocaleString(undefined, { maximumFractionDigits: 0 })));
+      row.appendChild(cell(formatAge(r.age_minutes)));
+      row.appendChild(cell(fmtSigned(r.price_change_24h_pct, 1) + '%', pnlClass(r.price_change_24h_pct)));
+
+      const amountTd = document.createElement('td');
+      const amountInput = document.createElement('input');
+      amountInput.type = 'number';
+      amountInput.className = 'manual-amount-input';
+      amountInput.placeholder = '25';
+      amountInput.min = '1';
+      amountInput.step = 'any';
+      amountTd.appendChild(amountInput);
+      row.appendChild(amountTd);
+
+      const buyTd = document.createElement('td');
+      const buyBtn = document.createElement('button');
+      buyBtn.className = 'btn-buy';
+      buyBtn.textContent = 'Buy';
+      buyBtn.dataset.tokenAddress = r.token_address;
+      buyBtn.dataset.symbol = r.symbol;
+      buyBtn.addEventListener('click', () => manualBuy(buyBtn, amountInput));
+      buyTd.appendChild(buyBtn);
+      row.appendChild(buyTd);
+
+      table.appendChild(row);
+    });
+    container.appendChild(table);
+  }
+
+  async function manualBuy(btn, amountInput) {
+    const amount = parseFloat(amountInput.value);
+    if (!amount || amount <= 0) {
+      alert('Enter an amount to buy first.');
+      amountInput.focus();
+      return;
+    }
+    const symbol = btn.dataset.symbol;
+    const token = btn.dataset.tokenAddress;
+    if (!confirm(`Buy $${amount} of ${symbol} right now? This skips all automated safety filters.`)) {
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = 'Buying...';
+    try {
+      const resp = await fetch(
+        `/api/manual-buy/${encodeURIComponent(token)}?amount_usd=${encodeURIComponent(amount)}`,
+        { method: 'POST' },
+      );
+      if (resp.status === 401) {
+        alert('Unauthorized — refresh the page and log in again.');
+        return;
+      }
+      const data = await resp.json();
+      alert(data.message);
+      if (data.bought) {
+        document.getElementById('manualSearchResults').innerHTML = '';
+        document.getElementById('manualSearchInput').value = '';
+      }
+      await refreshDashboard();
+    } catch (err) {
+      alert('Request failed: ' + err);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Buy';
+    }
+  }
+
+  document.getElementById('manualSearchBtn').addEventListener('click', manualSearch);
+  document.getElementById('manualSearchInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') manualSearch();
   });
 
   // ---- Per-position detail modal ---------------------------------------

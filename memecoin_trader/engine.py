@@ -675,6 +675,64 @@ class TradingEngine:
             logger.info("BIG RISK: position closed — resuming normal trading")
             self.ledger.end_big_risk()
 
+    def manual_buy(self, token_address: str, amount_usd: Decimal) -> tuple[bool, str]:
+        """Buys a specific, user-chosen token for a user-chosen dollar
+        amount -- the dashboard's "search for a coin and buy it yourself"
+        action. Deliberately bypasses every *entry* filter (hype score,
+        RugCheck, liquidity/volume minimums, the ML gate) -- the whole
+        point is that the user is vetting this token themselves, not
+        deferring to the algorithmic screen. Once bought, the position is
+        completely ordinary: the next _manage_open_positions() tick
+        applies the exact same stop-loss/take-profit/trailing-stop/
+        rug-detection exits as every signal-driven position gets, no
+        special-casing. Returns (bought, message)."""
+        if amount_usd <= 0:
+            return False, "Amount must be positive."
+
+        if self.ledger.get_big_risk_state().mode != "idle":
+            return False, "Big Risk mode is active — cancel it or wait for it to finish before buying manually."
+
+        if self.ledger.get_open_position_for_token(token_address) is not None:
+            return False, "You already have an open position in this token — sell it first to re-enter."
+
+        cash = self.ledger.get_cash_usd()
+        if amount_usd > cash:
+            return False, f"Only ${cash} cash available."
+
+        market = self.market.get_best_pair_for_token(self.settings.chain_id, token_address)
+        if market is None:
+            return False, "No market data available for that token right now."
+
+        signal = SocialSignal(
+            token_address=token_address,
+            symbol=market.symbol,
+            chain_id=self.settings.chain_id,
+            source="manual",
+            score=0.0,
+            mention_count=0,
+            excerpt="Manual buy via dashboard",
+            observed_at=datetime.now(timezone.utc),
+        )
+        try:
+            fill = self.executor.buy(token_address, amount_usd, market)
+            self.ledger.open_position(
+                token_address=token_address,
+                symbol=market.symbol,
+                chain_id=self.settings.chain_id,
+                fill=fill,
+                signal=signal,
+                entry_liquidity_usd=market.liquidity_usd,
+                mode=self.settings.mode,
+            )
+        except InsufficientCashError as exc:
+            return False, str(exc)
+        except Exception:
+            logger.exception("manual buy failed for %s", token_address)
+            return False, "Buy failed — check the logs."
+
+        logger.info("MANUAL BUY: %s (%s) $%s", market.symbol, token_address, amount_usd)
+        return True, f"Bought ${amount_usd} of {market.symbol}."
+
     def liquidate_position(self, token_address: str, reason: str = "manual_sell") -> bool:
         """Sells one open position immediately at the current market price.
 

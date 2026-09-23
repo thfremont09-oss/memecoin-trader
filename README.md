@@ -461,6 +461,31 @@ signal too weak by itself can still clear the bar once corroborated. A
 single strong signal from one source still gets through on its own merits;
 this only ever helps a borderline case, never blocks anything.
 
+## Manual buy
+
+A "Manual buy" panel on the dashboard for taking your own action instead of
+waiting on a signal source or the BIG RISK button: search DexScreener for
+any coin (by address or symbol/name — results sorted by liquidity, so the
+real token tends to rank above copycat clones sharing the same ticker),
+type in whatever dollar amount you want, and buy it.
+
+This deliberately skips every automated entry filter — hype-score
+threshold, RugCheck, liquidity/volume minimums, the ML gate — the whole
+point is that you're vetting the coin yourself, not deferring to the
+algorithm. It still can't buy a token you already hold (sell first to
+re-enter), can't exceed your available cash, and is blocked while BIG RISK
+mode is active (cancel or let it finish first) so the two features can't
+collide.
+
+**Once bought, the position is completely ordinary** — no special-casing.
+From the very next check, the exact same stop-loss, take-profit, trailing
+stop, and rug-detection exits that protect every signal-driven position
+protect this one too. It shows up in "Open positions" with `signal_source`
+set to `manual` (visible everywhere source shows, including performance-
+by-source), and its own per-position detail view works exactly the same
+way. Backed by `GET /api/search` and `POST /api/manual-buy/{token_address}`
+(`TradingEngine.manual_buy` in `memecoin_trader/engine.py`).
+
 ## Per-position detail view
 
 Clicking a coin's symbol — in either the open-positions table or the recent
