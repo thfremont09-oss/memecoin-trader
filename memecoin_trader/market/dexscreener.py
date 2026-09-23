@@ -21,6 +21,14 @@ BASE_URL = "https://api.dexscreener.com"
 REQUEST_TIMEOUT_SECONDS = 10
 MAX_RETRIES = 2
 RETRY_BACKOFF_SECONDS = 1.5
+# "quick" mode (get_best_pair_for_token(..., quick=True)) is for the
+# dashboard's live-refresh display, not trading decisions: a short timeout
+# with no retries so a slow/unreachable API degrades to "one stale-looking
+# refresh," not "the whole dashboard hangs," plus a short cache so a burst
+# of near-simultaneous lookups for the same token (multiple open positions,
+# overlapping requests) doesn't multiply into redundant calls.
+QUICK_TIMEOUT_SECONDS = 2.5
+QUICK_CACHE_TTL_SECONDS = 1.0
 
 
 def _to_decimal(value: Any) -> Decimal | None:
@@ -107,27 +115,58 @@ class DexScreenerError(RuntimeError):
 class DexScreenerClient:
     def __init__(self, session: requests.Session | None = None):
         self._session = session or requests.Session()
+        self._quick_cache: dict[tuple[str, str], tuple[float, PairInfo | None]] = {}
 
-    def _get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+    def _get(
+        self,
+        path: str,
+        params: dict[str, Any] | None = None,
+        timeout: float | None = None,
+        max_retries: int | None = None,
+    ) -> dict[str, Any]:
         url = f"{BASE_URL}{path}"
+        timeout = REQUEST_TIMEOUT_SECONDS if timeout is None else timeout
+        retries = MAX_RETRIES if max_retries is None else max_retries
         last_exc: Exception | None = None
-        for attempt in range(MAX_RETRIES + 1):
+        for attempt in range(retries + 1):
             try:
-                resp = self._session.get(url, params=params, timeout=REQUEST_TIMEOUT_SECONDS)
+                resp = self._session.get(url, params=params, timeout=timeout)
                 resp.raise_for_status()
                 return resp.json()
             except (requests.RequestException, ValueError) as exc:
                 last_exc = exc
-                if attempt < MAX_RETRIES:
+                if attempt < retries:
                     time.sleep(RETRY_BACKOFF_SECONDS * (attempt + 1))
         logger.warning("DexScreener request failed (%s): %s", url, last_exc)
         raise DexScreenerError(str(last_exc)) from last_exc
 
-    def get_best_pair_for_token(self, chain_id: str, token_address: str) -> PairInfo | None:
-        """Return the highest-liquidity pair for a token address, or None if unknown/unreachable."""
+    def get_best_pair_for_token(
+        self, chain_id: str, token_address: str, *, quick: bool = False
+    ) -> PairInfo | None:
+        """Return the highest-liquidity pair for a token address, or None if
+        unknown/unreachable.
+
+        `quick=True` is for a display refresh, not a trading decision: a
+        short timeout, no retries, and a ~1s cache (see QUICK_TIMEOUT_SECONDS/
+        QUICK_CACHE_TTL_SECONDS) so a slow or unreachable API can't stall
+        whatever's calling this in a loop. Never used by the engine's own
+        trading logic, which still gets the patient, retrying default.
+        """
+        cache_key = (chain_id, token_address)
+        if quick:
+            cached = self._quick_cache.get(cache_key)
+            if cached is not None and time.time() - cached[0] < QUICK_CACHE_TTL_SECONDS:
+                return cached[1]
+
         try:
-            data = self._get(f"/latest/dex/tokens/{token_address}")
+            data = self._get(
+                f"/latest/dex/tokens/{token_address}",
+                timeout=QUICK_TIMEOUT_SECONDS if quick else None,
+                max_retries=0 if quick else None,
+            )
         except DexScreenerError:
+            if quick:
+                self._quick_cache[cache_key] = (time.time(), None)
             return None
         pairs_raw = data.get("pairs") or []
         candidates = [
@@ -135,9 +174,10 @@ class DexScreenerClient:
             for p in (PairInfo.from_api(r) for r in pairs_raw)
             if p is not None and p.chain_id == chain_id
         ]
-        if not candidates:
-            return None
-        return max(candidates, key=lambda p: p.liquidity_usd)
+        result = max(candidates, key=lambda p: p.liquidity_usd) if candidates else None
+        if quick:
+            self._quick_cache[cache_key] = (time.time(), result)
+        return result
 
     def search(self, query: str, chain_id: str | None = None) -> list[PairInfo]:
         try:

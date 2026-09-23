@@ -26,6 +26,11 @@ from memecoin_trader.reporting import build_position_detail, build_summary
 app = FastAPI(title="Memecoin Trader Dashboard")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 _security = HTTPBasic(auto_error=False)
+# One shared client (not a fresh one per request) so its quick-lookup cache
+# (see DexScreenerClient.get_best_pair_for_token's `quick=True`) actually
+# does something -- it dedupes near-simultaneous lookups for the same
+# token across requests, which a throwaway per-request instance couldn't.
+_market_client = DexScreenerClient()
 
 
 def require_auth(credentials: Annotated[HTTPBasicCredentials | None, Depends(_security)] = None) -> None:
@@ -59,7 +64,7 @@ def _ledger() -> Ledger:
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request, range: str = "all", _auth: None = Depends(require_auth)):
     settings = load_settings()
-    summary = build_summary(_ledger(), settings, equity_range=range)
+    summary = build_summary(_ledger(), settings, equity_range=range, market_client=_market_client)
     return templates.TemplateResponse(
         request, "index.html", {"summary": summary, "mode": settings.mode}
     )
@@ -67,12 +72,13 @@ def index(request: Request, range: str = "all", _auth: None = Depends(require_au
 
 @app.get("/api/summary")
 def api_summary(range: str = "all", _auth: None = Depends(require_auth)):
-    return build_summary(_ledger(), load_settings(), equity_range=range)
+    return build_summary(_ledger(), load_settings(), equity_range=range, market_client=_market_client)
 
 
 @app.get("/api/position/{position_id}")
 def api_position_detail(position_id: int, _auth: None = Depends(require_auth)):
-    detail = build_position_detail(_ledger(), position_id)
+    settings = load_settings()
+    detail = build_position_detail(_ledger(), position_id, market_client=_market_client, chain_id=settings.chain_id)
     if detail is None:
         raise HTTPException(status_code=404, detail="Position not found")
     return detail
@@ -158,7 +164,7 @@ def api_search_tokens(q: str, _auth: None = Depends(require_auth)):
         return {"results": []}
 
     settings = load_settings()
-    pairs = DexScreenerClient().search(query, chain_id=settings.chain_id)
+    pairs = _market_client.search(query, chain_id=settings.chain_id)
     pairs.sort(key=lambda p: p.liquidity_usd, reverse=True)
     results = [
         {

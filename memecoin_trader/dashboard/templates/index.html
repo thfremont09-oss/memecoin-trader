@@ -1506,10 +1506,16 @@
     // would lag behind the number cards (which reflect live cash/position
     // marks every fetch) whenever the dial is set faster than that. Append
     // or refresh a synthetic "right now" point using the live equity value
-    // this same response already carries, so the line advances every tick.
+    // this same response already carries (as of the backend's DexScreener
+    // "quick" live-price lookup, that value itself now changes on every
+    // fetch too, not just every 5s), so the line actually advances every
+    // tick -- as fast as the dial is set, not capped by the engine's own
+    // cadence. The 300ms floor (well under the dial's fastest setting, 1s)
+    // is just there so clock jitter can't occasionally mistake a real new
+    // tick for a too-soon repeat and overwrite it instead of plotting it.
     const last = equityCurve[equityCurve.length - 1];
     const lastAgeMs = last ? Date.now() - new Date(last.recorded_at).getTime() : Infinity;
-    if (lastAgeMs > 1000) {
+    if (lastAgeMs > 300) {
       equityCurve.push({ recorded_at: new Date().toISOString(), equity_usd: s.equity_usd });
     } else {
       last.equity_usd = s.equity_usd;

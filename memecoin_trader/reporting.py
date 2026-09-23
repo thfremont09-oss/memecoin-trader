@@ -5,6 +5,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from memecoin_trader.config import Settings
+from memecoin_trader.market.dexscreener import DexScreenerClient
 from memecoin_trader.portfolio.ledger import CAUTION_LEVEL_LABELS, Ledger
 
 # The dashboard's equity-curve zoom presets, ordered zoomed-in to zoomed-out.
@@ -30,19 +31,48 @@ def _range_since_iso(equity_range: str) -> str | None:
     return None  # "all", or an unrecognized range -- no filter
 
 
-def _mark_price(ledger: Ledger, token_address: str, fallback: Decimal) -> Decimal:
+def _mark_price(
+    ledger: Ledger,
+    token_address: str,
+    fallback: Decimal,
+    market_client: DexScreenerClient | None = None,
+    chain_id: str | None = None,
+) -> Decimal:
+    """The price to show for a token right now.
+
+    With `market_client` + `chain_id` given (the dashboard's live-refresh
+    path), tries a quick, cached, no-retry DexScreener lookup first, so the
+    displayed price tracks how often the *dashboard* is asked to refresh
+    rather than only how often the engine's own position-check tick writes
+    a new snapshot to the DB. Falls back to the last persisted snapshot (the
+    CLI's `status` command, and the dashboard whenever the quick lookup
+    comes back empty) exactly as before -- `market_client=None` is the
+    default so nothing about existing callers changes.
+    """
+    if market_client is not None and chain_id is not None:
+        try:
+            live = market_client.get_best_pair_for_token(chain_id, token_address, quick=True)
+        except Exception:
+            live = None  # never let a flaky network call break a display refresh
+        if live is not None:
+            return live.price_usd
     price = ledger.get_latest_price(token_address)
     return price if price is not None else fallback
 
 
-def build_summary(ledger: Ledger, settings: Settings, equity_range: str = "all") -> dict:
+def build_summary(
+    ledger: Ledger,
+    settings: Settings,
+    equity_range: str = "all",
+    market_client: DexScreenerClient | None = None,
+) -> dict:
     state = ledger.get_portfolio_state()
     open_positions = ledger.get_open_positions()
 
     positions_value = Decimal(0)
     position_rows = []
     for p in open_positions:
-        price = _mark_price(ledger, p.token_address, p.entry_price_usd)
+        price = _mark_price(ledger, p.token_address, p.entry_price_usd, market_client, settings.chain_id)
         value = p.quantity * price
         positions_value += value
         position_rows.append(
@@ -94,7 +124,7 @@ def build_summary(ledger: Ledger, settings: Settings, equity_range: str = "all")
     if big_risk_state.position_id is not None:
         bp = ledger.get_position_by_id(big_risk_state.position_id)
         if bp is not None:
-            bp_price = _mark_price(ledger, bp.token_address, bp.entry_price_usd)
+            bp_price = _mark_price(ledger, bp.token_address, bp.entry_price_usd, market_client, settings.chain_id)
             big_risk_position = {
                 "id": bp.id,
                 "symbol": bp.symbol,
@@ -131,7 +161,12 @@ def build_summary(ledger: Ledger, settings: Settings, equity_range: str = "all")
     }
 
 
-def build_position_detail(ledger: Ledger, position_id: int) -> dict | None:
+def build_position_detail(
+    ledger: Ledger,
+    position_id: int,
+    market_client: DexScreenerClient | None = None,
+    chain_id: str | None = None,
+) -> dict | None:
     """Everything the dashboard's per-position detail view needs: entry vs.
     current/exit price, cost basis and fees, realized + unrealized P&L, the
     full trade history for this one position (entry buy, any partial
@@ -145,7 +180,7 @@ def build_position_detail(ledger: Ledger, position_id: int) -> dict | None:
     trades = ledger.get_trades_for_position(position_id)
     is_open = position.status == "open"
     if is_open:
-        current_price = _mark_price(ledger, position.token_address, position.entry_price_usd)
+        current_price = _mark_price(ledger, position.token_address, position.entry_price_usd, market_client, chain_id)
     elif trades and trades[-1].side == "sell":
         current_price = trades[-1].price_usd  # the price it actually exited at
     else:

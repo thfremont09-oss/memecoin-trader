@@ -538,6 +538,22 @@ response already carries — the line keeps advancing at the dial's pace
 even between the engine's own periodic snapshots, and true persisted
 history replaces it as soon as the next real snapshot lands.
 
+That "live equity value" itself used to be capped the same way: an open
+position's price only came from the engine's own last-written snapshot,
+which only refreshes every `timing.position_check_interval_seconds` (also
+5s by default) — so setting the dial faster than 5s just re-fetched the
+same stale number more often, and the line would sit flat for stretches
+then jump, instead of actually ticking. The dashboard now asks DexScreener
+for each open position's price directly on every refresh (a quick,
+no-retry, ~1s-cached lookup — see `DexScreenerClient.get_best_pair_for_token`'s
+`quick=True` mode — so a slow or unreachable API degrades to "one
+stale-looking refresh," never a hung page), decoupling the chart's
+liveliness from the engine's own trading cadence entirely: at the dial's
+fastest setting (1s) the line now genuinely ticks once a second, the way a
+live pump.fun-style chart does, not just once every 5.
+
+## Confetti on a pop
+
 ## Confetti on a pop
 
 Any single refresh where total equity jumps by more than 0.5% since the

@@ -3,10 +3,36 @@ from decimal import Decimal
 
 from memecoin_trader.config import load_settings
 from memecoin_trader.execution.base import FillResult
-from memecoin_trader.reporting import EQUITY_CURVE_RANGES, _range_since_iso, build_position_detail, build_summary
+from memecoin_trader.reporting import (
+    EQUITY_CURVE_RANGES,
+    _mark_price,
+    _range_since_iso,
+    build_position_detail,
+    build_summary,
+)
 from tests.conftest import make_signal
 
 SETTINGS = load_settings()
+
+
+class FakeLivePair:
+    def __init__(self, price_usd):
+        self.price_usd = price_usd
+
+
+class FakeMarketClient:
+    """Stands in for DexScreenerClient in _mark_price's live-lookup path."""
+
+    def __init__(self, result=None, raises=False):
+        self._result = result
+        self._raises = raises
+        self.calls = []
+
+    def get_best_pair_for_token(self, chain_id, token_address, quick=False):
+        self.calls.append((chain_id, token_address, quick))
+        if self._raises:
+            raise RuntimeError("network hiccup")
+        return self._result
 
 
 def test_equity_curve_ranges_lists_every_button_key():
@@ -152,3 +178,52 @@ def test_build_position_detail_for_a_closed_position(ledger):
     assert detail["unrealized_pnl_usd"] == 0.0
     assert detail["realized_pnl_usd"] > 0
     assert [t["side"] for t in detail["trades"]] == ["buy", "sell"]
+
+
+def test_mark_price_uses_db_snapshot_when_no_market_client_given(ledger):
+    ledger.record_price_snapshot("TOKEN1", Decimal("1.5"), Decimal("20000"), Decimal("50000"))
+    assert _mark_price(ledger, "TOKEN1", Decimal("1.0")) == Decimal("1.5")
+
+
+def test_mark_price_prefers_the_live_quick_lookup_over_the_db_snapshot(ledger):
+    ledger.record_price_snapshot("TOKEN1", Decimal("1.5"), Decimal("20000"), Decimal("50000"))
+    market_client = FakeMarketClient(result=FakeLivePair(Decimal("1.9")))
+
+    price = _mark_price(ledger, "TOKEN1", Decimal("1.0"), market_client, "solana")
+
+    assert price == Decimal("1.9")
+    assert market_client.calls == [("solana", "TOKEN1", True)]  # quick=True -- a display refresh, not a trade
+
+
+def test_mark_price_falls_back_to_db_when_live_lookup_returns_nothing(ledger):
+    ledger.record_price_snapshot("TOKEN1", Decimal("1.5"), Decimal("20000"), Decimal("50000"))
+    market_client = FakeMarketClient(result=None)
+
+    price = _mark_price(ledger, "TOKEN1", Decimal("1.0"), market_client, "solana")
+
+    assert price == Decimal("1.5")
+
+
+def test_mark_price_falls_back_to_db_when_live_lookup_raises(ledger):
+    ledger.record_price_snapshot("TOKEN1", Decimal("1.5"), Decimal("20000"), Decimal("50000"))
+    market_client = FakeMarketClient(raises=True)
+
+    price = _mark_price(ledger, "TOKEN1", Decimal("1.0"), market_client, "solana")
+
+    assert price == Decimal("1.5")  # a flaky network call never breaks the display
+
+
+def test_build_summary_open_positions_reflect_the_live_price_when_given(ledger):
+    signal = make_signal()
+    fill = FillResult(
+        price_usd=Decimal("1.0"), quantity=Decimal("20"), amount_usd=Decimal("20"), fee_usd=Decimal("0.2"), tx_id=None
+    )
+    ledger.open_position(
+        token_address=signal.token_address, symbol="MEME", chain_id="solana", fill=fill,
+        signal=signal, entry_liquidity_usd=Decimal("20000"), mode="paper",
+    )
+    market_client = FakeMarketClient(result=FakeLivePair(Decimal("3.0")))
+
+    summary = build_summary(ledger, SETTINGS, market_client=market_client)
+
+    assert summary["open_positions"][0]["current_price_usd"] == 3.0
