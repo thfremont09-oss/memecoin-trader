@@ -490,6 +490,23 @@ def test_big_risk_search_buys_first_qualifying_signal_ignoring_score_threshold(c
     assert state.position_id == positions[0].id
 
 
+def test_big_risk_search_caps_the_buy_at_max_position_usd_not_all_of_cash(conn):
+    engine, signal_source, market = build_engine(conn)
+    engine.ledger.deposit_cash(Decimal("200"))  # cash is now $300 -- well above the $100 cap
+    token = "TOKENRISK000000000000000000000000000000015"
+    market.pairs[token] = make_pair(token_address=token, price_usd="1.0")
+    signal_source.queue = [make_signal(token_address=token, score=5)]
+
+    engine.ledger.start_big_risk_search()
+    engine._big_risk_search()
+
+    positions = engine.ledger.get_open_positions()
+    assert len(positions) == 1
+    # spent close to the $100 cap, not ~97% of the full $300 cash balance
+    spent = Decimal("300") - engine.ledger.get_cash_usd()
+    assert Decimal("95") < spent <= Decimal("101")
+
+
 def test_big_risk_search_still_transitions_to_invested_if_feature_saving_fails(conn, monkeypatch):
     # Regression test: save_trade_features() raising used to be caught by
     # the same except block as the buy itself, so the loop treated an

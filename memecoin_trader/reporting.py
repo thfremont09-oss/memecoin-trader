@@ -113,6 +113,7 @@ def build_summary(ledger: Ledger, settings: Settings, equity_range: str = "all")
             "mode": big_risk_state.mode,
             "started_at": big_risk_state.started_at.isoformat() if big_risk_state.started_at else None,
             "search_window_seconds": settings.big_risk.search_window_seconds,
+            "max_position_usd": settings.big_risk.max_position_usd,
             "position": big_risk_position,
         },
         "starting_balance_usd": float(state.starting_balance_usd),

@@ -1435,9 +1435,10 @@
     const mode = bigRiskState.mode;
     if (mode === 'idle') {
       const minutes = Math.round(bigRiskState.search_window_seconds / 60);
+      const cap = fmt(bigRiskState.max_position_usd, 0);
       if (!confirm(
         `BIG RISK: sell every open position right now, then spend up to ${minutes} minute(s) ` +
-        `hunting for one coin to put your ENTIRE cash balance into.\n\n` +
+        `hunting for one coin to put as much cash as possible into, up to $${cap}.\n\n` +
         `This skips the normal hype-score bar and uses looser (not zero) safety filters -- ` +
         `RugCheck's danger-flag veto still applies. If nothing qualifies in time, it gives up ` +
         `and resumes normal trading. Continue?`

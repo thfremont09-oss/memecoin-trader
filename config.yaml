@@ -73,14 +73,15 @@ big_risk:
   # The dashboard's "BIG RISK" button: sell every open position immediately,
   # then spend up to search_window_seconds looking for one signal that
   # clears a *deliberately loosened* set of safety filters below -- still
-  # real filters, just not as strict as normal.entry -- and puts the
-  # entire cash balance into it. Aborts back to normal multi-source
-  # trading if nothing clears the filters in time, or as soon as the one
-  # all-in position fully closes for any reason (this stop-loss, the
-  # normal rug/trailing/time exits, or a manual sell).
+  # real filters, just not as strict as normal.entry -- and puts as much
+  # cash as it can into it, up to max_position_usd. Aborts back to normal
+  # multi-source trading if nothing clears the filters in time, or as soon
+  # as the one all-in position fully closes for any reason (this
+  # stop-loss, the normal rug/trailing/time exits, or a manual sell).
   search_window_seconds: 300         # 5 minutes to find a target before giving up
   poll_interval_seconds: 15          # re-poll every 15s during the search, not the normal 45s (timing.signal_poll_interval_seconds) -- the window is short, so check more often
   stop_loss_pct: 0.15                # tighter than exit.stop_loss_pct (0.25) -- once all-in on the one gamble, cut losses faster
+  max_position_usd: 100.0            # invest as much of the cash balance as it can, capped here -- so this stays a fixed-size gamble instead of scaling up as the account grows
 
   # Everything below is loosened vs. its entry.* equivalent so the search
   # actually finds something within the window -- moderately less safe,

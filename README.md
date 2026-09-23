@@ -650,8 +650,10 @@ A red hazard-striped button next to the caution slider. Clicking it:
    grab whatever clears the safety bar). The first candidate that clears
    what's left — a real RugCheck danger-flag veto, `fail_closed` behavior
    if it can't be verified at all, and the hardcoded mint/freeze-authority
-   checks, none of which are loosened — gets the entire cash balance. Red
-   siren lights flash across
+   checks, none of which are loosened — gets as much cash as possible put
+   into it, capped at `big_risk.max_position_usd` (default $100, so this
+   stays a fixed-size gamble rather than scaling up as the account grows).
+   Red siren lights flash across
    the page while this is happening (with a synthesized air-raid-style
    siren sound — two detuned sawtooth oscillators for a buzzy "rotating
    horn" texture, swept slowly up and down by an LFO and rounded off by a

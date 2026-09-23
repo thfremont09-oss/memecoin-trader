@@ -92,6 +92,7 @@ class BigRiskConfig:
     search_window_seconds: float
     poll_interval_seconds: float
     stop_loss_pct: float
+    max_position_usd: float
     min_liquidity_usd: float
     min_volume_24h_usd: float
     min_liquidity_to_fdv_pct: float

@@ -498,8 +498,9 @@ class TradingEngine:
         exactly like the normal flow, but evaluates candidates against a
         deliberately loosened set of filters (see big_risk.* in
         config.yaml) instead of the normal entry.* ones, and any signal
-        that clears them gets the entire cash balance. Buys the first one
-        found and switches to "invested"; if nothing clears the filters
+        that clears them gets as much of the cash balance as it can, capped
+        at big_risk.max_position_usd. Buys the first one found and switches
+        to "invested"; if nothing clears the filters
         this attempt, tick() will call this again next poll until the
         search window in tick() times out."""
         already_open = self.ledger.get_open_positions()
@@ -525,11 +526,12 @@ class TradingEngine:
         br = self.settings.big_risk
         # mention_score_threshold=-1 accepts any score (this mode chases
         # whatever's available within the window, not conviction);
-        # position_size_pct_of_cash=0.97 + a max_trade_usd far above the
-        # whole cash balance means evaluate_entry's own sizing math lands on
-        # "as close to the entire cash balance as it can safely go" -- 100%
-        # exactly would leave no room for the buy fee on top of it, and
-        # InsufficientCashError would reject every single attempt. Every
+        # position_size_pct_of_cash=0.97 + max_trade_usd=big_risk.max_position_usd
+        # means evaluate_entry's own sizing math lands on "as much of the
+        # cash balance as it can safely go, capped at max_position_usd" --
+        # a fixed-size gamble that doesn't scale up as the account grows,
+        # and the 0.97 (not 1.0) leaves room for the buy fee on top of it
+        # so InsufficientCashError can't reject every single attempt. Every
         # other override below trades some safety margin for actually
         # finding a candidate within the window, per big_risk.* in
         # config.yaml -- max_danger_flags, fail_closed, and the hardcoded
@@ -538,7 +540,7 @@ class TradingEngine:
             self.settings.entry,
             mention_score_threshold=-1.0,
             position_size_pct_of_cash=0.97,
-            max_trade_usd=float(cash) * 10 + 1.0,
+            max_trade_usd=br.max_position_usd,
             min_liquidity_usd=br.min_liquidity_usd,
             min_volume_24h_usd=br.min_volume_24h_usd,
             min_liquidity_to_fdv_pct=br.min_liquidity_to_fdv_pct,

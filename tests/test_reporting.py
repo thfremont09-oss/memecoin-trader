@@ -77,6 +77,7 @@ def test_build_summary_big_risk_defaults_to_idle(ledger):
         "mode": "idle",
         "started_at": None,
         "search_window_seconds": SETTINGS.big_risk.search_window_seconds,
+        "max_position_usd": SETTINGS.big_risk.max_position_usd,
         "position": None,
     }
 
