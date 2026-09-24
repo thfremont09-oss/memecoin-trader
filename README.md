@@ -2,7 +2,7 @@
 
 A simulation-first bot that watches for social-media FOMO around Solana
 memecoins, screens candidates against real market data, and paper-trades
-them starting from **$100**. It's built so that going from simulation to
+them starting from **$1000**. It's built so that going from simulation to
 real trading later is a config change, not a rewrite.
 
 ## How it works
@@ -692,7 +692,7 @@ A red hazard-striped button next to the caution slider. Clicking it:
    what's left — a real RugCheck danger-flag veto, `fail_closed` behavior
    if it can't be verified at all, and the hardcoded mint/freeze-authority
    checks, none of which are loosened — gets as much cash as possible put
-   into it, capped at `big_risk.max_position_usd` (default $100, so this
+   into it, capped at `big_risk.max_position_usd` (default $1000, so this
    stays a fixed-size gamble rather than scaling up as the account grows).
    Red siren lights flash across
    the page while this is happening (with a synthesized air-raid-style
@@ -800,7 +800,7 @@ Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
 ## Usage
 
 ```powershell
-# Start the trading loop (paper mode, $100 starting balance)
+# Start the trading loop (paper mode, $1000 starting balance)
 python -m memecoin_trader.cli run
 
 # In another terminal: check balance / positions / P&L, plus a
@@ -826,7 +826,7 @@ python -m memecoin_trader.cli online
 # Sell everything right now, but keep looking for new trades (no offline switch)
 python -m memecoin_trader.cli liquidate
 
-# Wipe the simulation and start over from $100
+# Wipe the simulation and start over from $1000
 python -m memecoin_trader.cli reset
 
 # Add cash to the simulated portfolio without touching trade history

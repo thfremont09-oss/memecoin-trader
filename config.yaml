@@ -4,7 +4,7 @@
 mode: paper  # paper | live  (live also requires env safety flags, see README)
 
 portfolio:
-  starting_balance_usd: 100.0
+  starting_balance_usd: 1000.0
 
 chain:
   id: solana
@@ -26,8 +26,8 @@ entry:
   max_pair_age_hours: 72             # only chase fresh hype, not old coins
   max_open_positions: 4              # back to 4 — fewer, more deliberate concurrent bets
   position_size_pct_of_cash: 0.15    # was 0.20 — smaller fraction of cash per trade
-  min_trade_usd: 5.0
-  max_trade_usd: 25.0                # was 60 — smaller max bet size, scaled back down with the balance
+  min_trade_usd: 50.0                # scaled 10x with starting_balance_usd (100 -> 1000)
+  max_trade_usd: 250.0               # scaled 10x with starting_balance_usd (100 -> 1000)
   min_liquidity_to_fdv_pct: 3.0      # tighter floor against thin-liquidity manipulation/rugs — kept, this is a safety filter
   max_price_change_5m_pct: 150.0     # back to 150 — don't chase as hot a pump
   min_buy_sell_ratio: 1.2            # was 1.0 — require healthier buy pressure, not just barely more buys than sells
@@ -81,7 +81,7 @@ big_risk:
   search_window_seconds: 300         # 5 minutes to find a target before giving up
   poll_interval_seconds: 15          # re-poll every 15s during the search, not the normal 45s (timing.signal_poll_interval_seconds) -- the window is short, so check more often
   stop_loss_pct: 0.15                # tighter than exit.stop_loss_pct (0.25) -- once all-in on the one gamble, cut losses faster
-  max_position_usd: 100.0            # invest as much of the cash balance as it can, capped here -- so this stays a fixed-size gamble instead of scaling up as the account grows
+  max_position_usd: 1000.0           # invest as much of the cash balance as it can, capped here -- so this stays a fixed-size gamble instead of scaling up as the account grows; scaled 10x with starting_balance_usd (100 -> 1000)
 
   # Everything below is loosened vs. its entry.* equivalent so the search
   # actually finds something within the window -- moderately less safe,

@@ -483,7 +483,7 @@ def test_big_risk_search_buys_first_qualifying_signal_ignoring_score_threshold(c
     assert len(positions) == 1
     assert positions[0].token_address == token
     # went (almost) all-in rather than the normal 15%-of-cash sizing
-    assert engine.ledger.get_cash_usd() < Decimal("5")
+    assert engine.ledger.get_cash_usd() < Decimal("50")
 
     state = engine.ledger.get_big_risk_state()
     assert state.mode == "invested"
@@ -492,7 +492,7 @@ def test_big_risk_search_buys_first_qualifying_signal_ignoring_score_threshold(c
 
 def test_big_risk_search_caps_the_buy_at_max_position_usd_not_all_of_cash(conn):
     engine, signal_source, market = build_engine(conn)
-    engine.ledger.deposit_cash(Decimal("200"))  # cash is now $300 -- well above the $100 cap
+    engine.ledger.deposit_cash(Decimal("500"))  # cash is now $1500 -- well above the $1000 cap
     token = "TOKENRISK000000000000000000000000000000015"
     market.pairs[token] = make_pair(token_address=token, price_usd="1.0")
     signal_source.queue = [make_signal(token_address=token, score=5)]
@@ -502,9 +502,9 @@ def test_big_risk_search_caps_the_buy_at_max_position_usd_not_all_of_cash(conn):
 
     positions = engine.ledger.get_open_positions()
     assert len(positions) == 1
-    # spent close to the $100 cap, not ~97% of the full $300 cash balance
-    spent = Decimal("300") - engine.ledger.get_cash_usd()
-    assert Decimal("95") < spent <= Decimal("101")
+    # spent close to the $1000 cap, not ~97% of the full $1500 cash balance
+    spent = Decimal("1500") - engine.ledger.get_cash_usd()
+    assert Decimal("950") < spent <= Decimal("1010")
 
 
 def test_big_risk_search_still_transitions_to_invested_if_feature_saving_fails(conn, monkeypatch):
@@ -801,7 +801,7 @@ def test_manual_buy_rejects_amount_over_available_cash(conn):
     token = "TOKENMANUAL00000000000000000000000000000003"
     market.pairs[token] = make_pair(token_address=token)
 
-    bought, message = engine.manual_buy(token, Decimal("500"))
+    bought, message = engine.manual_buy(token, Decimal("1500"))
 
     assert bought is False
     assert "cash available" in message
