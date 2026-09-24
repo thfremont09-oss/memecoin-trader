@@ -579,9 +579,9 @@ def test_big_risk_manage_position_protects_every_open_position(conn):
     # only position_a is "the" tracked big-risk position...
     engine.ledger.set_big_risk_invested(position_a.id)
 
-    # ...but both get an 18% drop, past big_risk.stop_loss_pct (0.15)
-    market.pairs[token_a] = make_pair(token_address=token_a, price_usd="0.82")
-    market.pairs[token_b] = make_pair(token_address=token_b, price_usd="0.82")
+    # ...but both get a 12% drop, past big_risk.stop_loss_pct (0.10)
+    market.pairs[token_a] = make_pair(token_address=token_a, price_usd="0.88")
+    market.pairs[token_b] = make_pair(token_address=token_b, price_usd="0.88")
 
     engine._big_risk_manage_position(engine.ledger.get_big_risk_state())
 
@@ -740,10 +740,10 @@ def test_big_risk_invested_position_uses_a_tighter_stop_loss(conn):
     position = engine.ledger.get_open_positions()[0]
     engine.ledger.set_big_risk_invested(position.id)
 
-    # an 18% drop clears big_risk.stop_loss_pct (0.15) but not the normal
-    # exit.stop_loss_pct (0.25) -- only the tighter Big Risk threshold
+    # a 12% drop clears big_risk.stop_loss_pct (0.10) but not the normal
+    # exit.stop_loss_pct (0.15) -- only the tighter Big Risk threshold
     # should be able to explain this exit
-    market.pairs[token] = make_pair(token_address=token, price_usd="0.82")
+    market.pairs[token] = make_pair(token_address=token, price_usd="0.88")
     engine._big_risk_manage_position(engine.ledger.get_big_risk_state())
 
     assert engine.ledger.get_open_positions() == []

@@ -48,22 +48,29 @@ entry:
     retrain_check_interval_minutes: 60  # how often the engine checks whether it's worth retraining on newly-closed trades
 
 exit:
-  stop_loss_pct: 0.25                # back to 0.25 — cut losses sooner
-  take_profit_pct: 0.50              # first take-profit trigger
-  take_profit_sell_fraction: 0.5     # sell this fraction of the position at take-profit
-  trailing_stop_pct: 0.20            # baseline trailing stop while a position's peak gain is below every tier below
+  stop_loss_pct: 0.15                # was 0.25 — give up on a losing coin faster instead of riding it down
+  take_profit_pct: 0.35              # was 0.50 — start locking in real gains sooner
+  take_profit_sell_fraction: 0.6     # was 0.5 — bank more of the position on that first take, still leaving room to ride further upside
+  trailing_stop_pct: 0.18            # baseline trailing stop while a position's peak gain is below every tier below
   trailing_stop_tiers:
     # "Run away when profits get maximized": the trailing stop tightens as
     # a position's best-ever gain grows, so a real pump gives back less
-    # before locking in the win instead of a flat 20% of however big the
+    # before locking in the win instead of a flat 18% of however big the
     # spike was. Ordered smallest peak-gain threshold first; the tightest
-    # tier whose threshold the position's peak has reached wins.
-    - peak_gain_pct: 0.50             # once up 50%+ from entry at some point
+    # tier whose threshold the position's peak has reached wins. Tightened
+    # across the board, and extended further, so a coin that goes "super
+    # high" gets sold into strength well before a rug pull can give it all
+    # back, instead of waiting for a 6% pullback off a moonshot peak.
+    - peak_gain_pct: 0.35             # once up 35%+ from entry at some point
       trailing_stop_pct: 0.15
-    - peak_gain_pct: 1.00             # up 100%+ (doubled)
+    - peak_gain_pct: 0.75             # up 75%+
       trailing_stop_pct: 0.10
-    - peak_gain_pct: 2.00             # up 200%+ (tripled) — protect a real moonshot hard
-      trailing_stop_pct: 0.06
+    - peak_gain_pct: 1.50             # up 150%+
+      trailing_stop_pct: 0.07
+    - peak_gain_pct: 3.00             # up 300%+ (quadrupled) — a real moonshot, protect it hard
+      trailing_stop_pct: 0.04
+    - peak_gain_pct: 5.00             # up 500%+ — this deep into a pump, any real pullback probably means the rug is starting
+      trailing_stop_pct: 0.03
   max_hold_minutes: 240              # force exit after this long regardless
   liquidity_rug_fraction: 0.5        # trips the emergency liquidity-rug exit sooner — kept, this is a safety filter
   sudden_liquidity_drop_pct: 0.45    # was 0.35 — that was firing on ordinary thin-pool volatility, not just real rugs, once liquidity_rug_check_interval_seconds stopped being the same 5s window everything else refreshes on; still well below what a genuine LP pull looks like
@@ -80,7 +87,7 @@ big_risk:
   # stop-loss, the normal rug/trailing/time exits, or a manual sell).
   search_window_seconds: 300         # 5 minutes to find a target before giving up
   poll_interval_seconds: 15          # re-poll every 15s during the search, not the normal 45s (timing.signal_poll_interval_seconds) -- the window is short, so check more often
-  stop_loss_pct: 0.15                # tighter than exit.stop_loss_pct (0.25) -- once all-in on the one gamble, cut losses faster
+  stop_loss_pct: 0.10                # tighter than exit.stop_loss_pct (0.15) -- once all-in on the one gamble, cut losses even faster
   max_position_usd: 100.0            # invest as much of the cash balance as it can, capped here -- so this stays a fixed-size gamble instead of scaling up as the account grows
 
   # Everything below is loosened vs. its entry.* equivalent so the search
