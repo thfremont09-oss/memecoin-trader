@@ -1,6 +1,7 @@
 """End-to-end test of one full buy-then-exit cycle through the real engine
 wiring (ledger + strategies + paper executor), with only the two outside
 inputs (Twitter signal, DexScreener market data) replaced by fakes."""
+import logging
 import time
 from dataclasses import replace
 from decimal import Decimal
@@ -49,6 +50,21 @@ def build_engine(conn):
     rug_client = FakeRugCheckClient()
     engine = TradingEngine(settings, conn, market, signal_source, executor, rug_client=rug_client)
     return engine, signal_source, market
+
+
+def test_poll_signals_logs_a_rejection_summary_when_nothing_buys(conn, caplog):
+    engine, signal_source, market = build_engine(conn)
+    token = "TOKENREJECT0000000000000000000000000000001"
+    market.pairs[token] = make_pair(token_address=token, price_usd="1.0")
+    signal_source.queue = [make_signal(token_address=token, score=5)]  # below mention_score_threshold
+
+    with caplog.at_level(logging.INFO, logger="memecoin_trader.engine"):
+        engine._poll_signals()
+
+    assert engine.ledger.get_open_positions() == []
+    assert any(
+        "1 signal(s), 0 bought" in r.message and "score_below_threshold" in r.message for r in caplog.records
+    )
 
 
 def test_full_cycle_buy_then_stop_loss_sell(conn):

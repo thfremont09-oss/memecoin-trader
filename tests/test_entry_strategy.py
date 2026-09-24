@@ -1,7 +1,7 @@
 from dataclasses import replace
 from decimal import Decimal
 
-from memecoin_trader.analysis.entry_strategy import EntryContext, effective_score, evaluate_entry
+from memecoin_trader.analysis.entry_strategy import EntryContext, effective_score, evaluate_entry, rejection_reason
 from memecoin_trader.config import EntryConfig, MlConfig, RugCheckConfig
 from tests.conftest import make_pair, make_rug_report, make_signal
 
@@ -295,3 +295,49 @@ def test_corroboration_lets_a_below_threshold_signal_through():
     market = make_pair()
     assert evaluate_entry(signal, market, DEFAULT_CTX, CONFIG, corroborating_sources=1) is None
     assert evaluate_entry(signal, market, DEFAULT_CTX, CONFIG, corroborating_sources=2) is not None
+
+
+def test_rejection_reason_is_none_when_evaluate_entry_would_accept():
+    signal = make_signal(score=80)
+    market = make_pair()
+    assert evaluate_entry(signal, market, DEFAULT_CTX, CONFIG) is not None
+    assert rejection_reason(signal, market, DEFAULT_CTX, CONFIG) is None
+
+
+def test_rejection_reason_identifies_score_below_threshold():
+    signal = make_signal(score=10)
+    market = make_pair()
+    assert rejection_reason(signal, market, DEFAULT_CTX, CONFIG) == "score_below_threshold"
+
+
+def test_rejection_reason_identifies_already_holding():
+    signal = make_signal(score=80)
+    market = make_pair()
+    ctx = EntryContext(cash_usd=Decimal("100"), open_position_count=1, already_holds_token=True, token_on_cooldown=False)
+    assert rejection_reason(signal, market, ctx, CONFIG) == "already_holds_token"
+
+
+def test_rejection_reason_identifies_missing_market_data():
+    signal = make_signal(score=80)
+    assert rejection_reason(signal, None, DEFAULT_CTX, CONFIG) == "no_market_data"
+
+
+def test_rejection_reason_identifies_low_liquidity():
+    signal = make_signal(score=80)
+    market = make_pair(liquidity_usd="100")
+    assert rejection_reason(signal, market, DEFAULT_CTX, CONFIG) == "liquidity_too_low"
+
+
+def test_rejection_reason_identifies_rug_check_danger_flags():
+    config = replace(CONFIG, rug_check=replace(CONFIG.rug_check, enabled=True))
+    signal = make_signal(score=80)
+    market = make_pair()
+    report = make_rug_report(danger_flags=("Mint authority not renounced",))
+    assert rejection_reason(signal, market, DEFAULT_CTX, config, rug_report=report) == "rug_check_danger_flags"
+
+
+def test_rejection_reason_identifies_insufficient_cash():
+    signal = make_signal(score=80)
+    market = make_pair()
+    ctx = EntryContext(cash_usd=Decimal("2"), open_position_count=0, already_holds_token=False, token_on_cooldown=False)
+    assert rejection_reason(signal, market, ctx, CONFIG) == "insufficient_cash"

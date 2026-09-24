@@ -6,11 +6,12 @@ import dataclasses
 import logging
 import sqlite3
 import time
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 
-from memecoin_trader.analysis.entry_strategy import EntryContext, effective_score, evaluate_entry
+from memecoin_trader.analysis.entry_strategy import EntryContext, effective_score, evaluate_entry, rejection_reason
 from memecoin_trader.analysis.exit_strategy import evaluate_exit
 from memecoin_trader.config import (
     DB_PATH,
@@ -343,6 +344,8 @@ class TradingEngine:
             self.settings.entry, self.settings.timing.token_cooldown_minutes, self.ledger.get_caution_level()
         )
 
+        bought = 0
+        rejections: Counter[str] = Counter()
         for signal in signals:
             market = self.market.get_best_pair_for_token(self.settings.chain_id, signal.token_address)
             if market is not None:
@@ -397,6 +400,13 @@ class TradingEngine:
             self.ledger.record_signal(signal, acted_on=decision is not None)
 
             if decision is None:
+                rejections[
+                    rejection_reason(
+                        signal, market, ctx, entry_config,
+                        rug_report=rug_report, ml_confidence=ml_confidence,
+                        corroborating_sources=corroborating_sources,
+                    )
+                ] += 1
                 continue
 
             logger.info(
@@ -419,10 +429,15 @@ class TradingEngine:
                 )
                 if features is not None:
                     self.ledger.save_trade_features(position.id, features)
+                bought += 1
             except InsufficientCashError as exc:
                 logger.warning("skipped buy for %s: %s", signal.symbol, exc)
             except Exception:
                 logger.exception("buy execution failed for %s", signal.symbol)
+
+        if signals and bought == 0:
+            summary = ", ".join(f"{reason}={count}" for reason, count in rejections.most_common())
+            logger.info("poll: %d signal(s), 0 bought — rejected: %s", len(signals), summary)
 
     def _manage_open_positions(self) -> None:
         for position in self.ledger.get_open_positions():
