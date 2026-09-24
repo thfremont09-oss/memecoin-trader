@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import sys
 import time
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -62,6 +61,7 @@ class TelegramSource(SignalSource):
         self._chain_id = chain_id
         self._market_client = market_client or DexScreenerClient()
         self._client = None
+        self._loop: asyncio.AbstractEventLoop | None = None
         self._recently_signaled: dict[str, float] = {}
 
     def _resolve_cashtag(self, symbol: str) -> str | None:
@@ -75,22 +75,28 @@ class TelegramSource(SignalSource):
     def _ensure_client(self):
         if self._client is not None:
             return self._client
-        if sys.platform == "win32":
-            # telethon.sync's implicit "run this synchronously" wrapper relies
-            # on asyncio.get_event_loop().run_until_complete(...), which
-            # breaks under Windows' default ProactorEventLoop -- calls like
-            # get_messages() silently return an unresolved coroutine instead
-            # of blocking for the result ("'coroutine' object is not
-            # iterable"). The Selector policy doesn't have this problem.
-            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-        from telethon.sync import TelegramClient
+        # Deliberately NOT using telethon.sync here -- its implicit
+        # "make every async method synchronous" wrapper depends on the
+        # client's stored loop never being observed as "running" by the time
+        # a later call comes in. In practice (confirmed in production on
+        # Windows) that stops holding once the client's underlying loop has
+        # done any work at all, and every call after that silently returns
+        # an unresolved coroutine instead of blocking for the real result --
+        # e.g. `for msg in client.get_messages(...)` failing with
+        # "'coroutine' object is not iterable". Owning a dedicated loop and
+        # driving Telethon's real async methods ourselves via
+        # run_until_complete sidesteps that class of bug entirely, on any
+        # platform, since we're not relying on telethon.sync's heuristic.
+        from telethon import TelegramClient
 
+        self._loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self._loop)
         client = TelegramClient(
             str(self._session_path), int(self._secrets.telegram_api_id), self._secrets.telegram_api_hash
         )
-        client.connect()
-        if not client.is_user_authorized():
-            client.disconnect()
+        self._loop.run_until_complete(client.connect())
+        if not self._loop.run_until_complete(client.is_user_authorized()):
+            self._loop.run_until_complete(client.disconnect())
             raise SessionExpiredError(
                 "Telegram session is not authorized -- run: python scripts/telegram_login_setup.py"
             )
@@ -113,7 +119,10 @@ class TelegramSource(SignalSource):
         messages = []
         for channel in self._config.channels:
             try:
-                for msg in client.get_messages(channel, limit=self._config.max_messages_per_channel_per_poll):
+                fetched = self._loop.run_until_complete(
+                    client.get_messages(channel, limit=self._config.max_messages_per_channel_per_poll)
+                )
+                for msg in fetched:
                     if not msg or not msg.message:
                         continue
                     score = self._engagement_score(msg.views or 0, msg.forwards or 0)
