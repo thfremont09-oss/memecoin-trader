@@ -19,7 +19,9 @@ like it does to any other source.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
+import sys
 import time
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -73,6 +75,14 @@ class TelegramSource(SignalSource):
     def _ensure_client(self):
         if self._client is not None:
             return self._client
+        if sys.platform == "win32":
+            # telethon.sync's implicit "run this synchronously" wrapper relies
+            # on asyncio.get_event_loop().run_until_complete(...), which
+            # breaks under Windows' default ProactorEventLoop -- calls like
+            # get_messages() silently return an unresolved coroutine instead
+            # of blocking for the result ("'coroutine' object is not
+            # iterable"). The Selector policy doesn't have this problem.
+            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
         from telethon.sync import TelegramClient
 
         client = TelegramClient(
