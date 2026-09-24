@@ -21,7 +21,8 @@ CONFIG = EntryConfig(
     corroboration_bonus_score=15.0,
     corroboration_window_minutes=30.0,
     rug_check=RugCheckConfig(
-        enabled=False, fail_closed=True, max_danger_flags=0, max_warning_flags=4, min_lp_locked_pct=50.0
+        enabled=False, fail_closed=True, max_danger_flags=0, max_warning_flags=4,
+        min_lp_locked_pct=50.0, max_top_holder_pct=100.0,
     ),
     ml=MlConfig(enabled=False, min_confidence=0.55, min_training_trades=30, retrain_check_interval_minutes=60),
 )
@@ -212,6 +213,30 @@ def test_rug_check_allows_warning_flags_within_limit():
     assert evaluate_entry(signal, market, DEFAULT_CTX, config, rug_report=report) is not None
 
 
+def test_rug_check_blocks_excessive_top_holder_concentration():
+    config = replace(CONFIG, rug_check=replace(CONFIG.rug_check, enabled=True, max_top_holder_pct=15.0))
+    signal = make_signal(score=80)
+    market = make_pair()
+    report = make_rug_report(top_holder_pct=30.0)  # one wallet holds 30% of supply
+    assert evaluate_entry(signal, market, DEFAULT_CTX, config, rug_report=report) is None
+
+
+def test_rug_check_allows_top_holder_pct_within_limit():
+    config = replace(CONFIG, rug_check=replace(CONFIG.rug_check, enabled=True, max_top_holder_pct=15.0))
+    signal = make_signal(score=80)
+    market = make_pair()
+    report = make_rug_report(top_holder_pct=10.0)
+    assert evaluate_entry(signal, market, DEFAULT_CTX, config, rug_report=report) is not None
+
+
+def test_rug_check_allows_unknown_top_holder_pct():
+    config = replace(CONFIG, rug_check=replace(CONFIG.rug_check, enabled=True, max_top_holder_pct=15.0))
+    signal = make_signal(score=80)
+    market = make_pair()
+    report = make_rug_report(top_holder_pct=None)
+    assert evaluate_entry(signal, market, DEFAULT_CTX, config, rug_report=report) is not None
+
+
 def test_rug_check_blocks_unrenounced_mint_authority_even_without_danger_flag():
     config = replace(CONFIG, rug_check=replace(CONFIG.rug_check, enabled=True))
     signal = make_signal(score=80)
@@ -334,6 +359,17 @@ def test_rejection_reason_identifies_rug_check_danger_flags():
     market = make_pair()
     report = make_rug_report(danger_flags=("Mint authority not renounced",))
     assert rejection_reason(signal, market, DEFAULT_CTX, config, rug_report=report) == "rug_check_danger_flags"
+
+
+def test_rejection_reason_identifies_top_holder_concentration():
+    config = replace(CONFIG, rug_check=replace(CONFIG.rug_check, enabled=True, max_top_holder_pct=15.0))
+    signal = make_signal(score=80)
+    market = make_pair()
+    report = make_rug_report(top_holder_pct=40.0)
+    assert (
+        rejection_reason(signal, market, DEFAULT_CTX, config, rug_report=report)
+        == "rug_check_top_holder_concentration"
+    )
 
 
 def test_rejection_reason_identifies_insufficient_cash():

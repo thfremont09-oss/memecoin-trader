@@ -5,7 +5,7 @@ from tests.conftest import make_pair, make_rug_report, make_signal
 def test_extract_features_happy_path():
     signal = make_signal(score=77.0)
     market = make_pair(liquidity_usd="50000", fdv_usd="500000", price_change_5m_pct=12.5)
-    report = make_rug_report(score=8.0, danger_flags=(), lp_locked_pct=95.0)
+    report = make_rug_report(score=8.0, danger_flags=(), lp_locked_pct=95.0, top_holder_pct=6.0)
 
     features = extract_features(signal, market, report)
 
@@ -17,6 +17,7 @@ def test_extract_features_happy_path():
     assert features["rug_score"] == 8.0
     assert features["rug_danger_flag_count"] == 0.0
     assert features["rug_lp_locked_pct"] == 95.0
+    assert features["rug_top_holder_pct"] == 6.0
     assert set(features.keys()) == set(FEATURE_NAMES)
 
 
@@ -27,6 +28,7 @@ def test_extract_features_without_rug_report_defaults_to_zero():
     assert features["rug_score"] == 0.0
     assert features["rug_danger_flag_count"] == 0.0
     assert features["rug_lp_locked_pct"] == 0.0
+    assert features["rug_top_holder_pct"] == 0.0
 
 
 def test_unknown_fdv_gives_zero_ratio_not_a_crash():

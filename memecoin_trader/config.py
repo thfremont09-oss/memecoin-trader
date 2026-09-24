@@ -38,6 +38,7 @@ class RugCheckConfig:
     max_danger_flags: int
     max_warning_flags: int
     min_lp_locked_pct: float
+    max_top_holder_pct: float
 
 
 @dataclass(frozen=True)
@@ -100,6 +101,7 @@ class BigRiskConfig:
     max_price_change_5m_pct: float
     max_warning_flags: int
     min_lp_locked_pct: float
+    max_top_holder_pct: float
     ml_gate_enabled: bool
 
 

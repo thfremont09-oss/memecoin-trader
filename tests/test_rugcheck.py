@@ -52,6 +52,33 @@ def test_clean_report_has_no_flags_and_is_not_high_risk():
     assert report.danger_flags == ()
     assert report.is_high_risk is False
     assert report.lp_locked_pct is None
+    assert report.top_holder_pct is None
+
+
+def test_parses_top_holder_pct_as_the_largest_holder():
+    session = make_session(
+        {
+            "score": 10,
+            "risks": [],
+            "token": {},
+            "markets": [],
+            "topHolders": [{"address": "A", "pct": 8.5}, {"address": "B", "pct": 22.0}, {"address": "C", "pct": 3.0}],
+        }
+    )
+    client = RugCheckClient(session=session)
+    report = client.get_risk_report("TOKEN1")
+
+    assert report is not None
+    assert report.top_holder_pct == 22.0  # worst case (largest single holder), not the first or an average
+
+
+def test_malformed_top_holders_field_does_not_crash():
+    session = make_session({"score": 5, "risks": [], "token": {}, "markets": [], "topHolders": "not-a-list"})
+    client = RugCheckClient(session=session)
+    report = client.get_risk_report("TOKEN1")
+
+    assert report is not None
+    assert report.top_holder_pct is None
 
 
 def test_404_returns_none_not_an_error():

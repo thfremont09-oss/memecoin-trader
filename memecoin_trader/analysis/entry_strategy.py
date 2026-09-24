@@ -97,6 +97,11 @@ def rejection_reason(
                 and rug_report.lp_locked_pct < config.rug_check.min_lp_locked_pct
             ):
                 return "rug_check_lp_not_locked"
+            if (
+                rug_report.top_holder_pct is not None
+                and rug_report.top_holder_pct > config.rug_check.max_top_holder_pct
+            ):
+                return "rug_check_top_holder_concentration"  # LP locked doesn't stop a whale from dumping their own bag
             # Checked directly rather than relying solely on RugCheck's own
             # danger/warning labeling for these two: an un-renounced mint
             # authority (unlimited new supply) or an active freeze authority

@@ -29,6 +29,7 @@ FEATURE_NAMES: Final[list[str]] = [
     "rug_score",
     "rug_danger_flag_count",
     "rug_lp_locked_pct",
+    "rug_top_holder_pct",
     "corroborating_source_count",
 ]
 
@@ -61,6 +62,11 @@ def extract_features(
         "rug_lp_locked_pct": (
             float(rug_report.lp_locked_pct)
             if (rug_report is not None and rug_report.lp_locked_pct is not None)
+            else 0.0
+        ),
+        "rug_top_holder_pct": (
+            float(rug_report.top_holder_pct)
+            if (rug_report is not None and rug_report.top_holder_pct is not None)
             else 0.0
         ),
         "corroborating_source_count": float(corroborating_sources),

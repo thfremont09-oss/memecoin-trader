@@ -40,6 +40,7 @@ entry:
     max_danger_flags: 0              # any RugCheck "danger"-level finding blocks the trade by default
     max_warning_flags: 2             # was 3 — even less tolerance for smaller red flags stacking up, to buy fewer rug-prone tokens in the first place
     min_lp_locked_pct: 75.0          # was 65 — requires more LP actually locked/burned before trusting a pool, on top of the catastrophic-drop exit above
+    max_top_holder_pct: 15.0         # NEW: blocks the trade if a single wallet holds more than this share of total supply -- LP being locked doesn't stop a whale (often the deployer) from just dumping their own bag and crashing the price anyway
 
   ml:
     enabled: true                    # the engine auto-trains a model once enough closed trades exist (see min_training_trades); a no-op gate until then
@@ -104,6 +105,7 @@ big_risk:
   max_price_change_5m_pct: 300.0     # was entry.max_price_change_5m_pct (150) -- this mode chases momentum even mid-pump
   max_warning_flags: 4               # was entry.rug_check.max_warning_flags (2)
   min_lp_locked_pct: 50.0            # was entry.rug_check.min_lp_locked_pct (75)
+  max_top_holder_pct: 25.0           # was entry.rug_check.max_top_holder_pct (15) -- loosened, but a single wallet holding a quarter or more of supply still blocks the buy
   ml_gate_enabled: false             # the ML confidence gate predicts normal-strategy trade quality, which contradicts this mode's whole point of grabbing whatever clears the safety bar
 
 execution:

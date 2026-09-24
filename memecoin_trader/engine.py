@@ -568,6 +568,7 @@ class TradingEngine:
                 self.settings.entry.rug_check,
                 max_warning_flags=br.max_warning_flags,
                 min_lp_locked_pct=br.min_lp_locked_pct,
+                max_top_holder_pct=br.max_top_holder_pct,
             ),
             ml=dataclasses.replace(self.settings.entry.ml, enabled=br.ml_gate_enabled),
         )

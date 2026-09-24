@@ -45,6 +45,7 @@ class RugRiskReport:
     mint_authority_renounced: bool | None  # None = not reported / unknown
     freeze_authority_renounced: bool | None
     lp_locked_pct: float | None  # 0-100, None if unknown
+    top_holder_pct: float | None  # 0-100, % of supply held by the single largest holder; None if unknown
 
     @property
     def is_high_risk(self) -> bool:
@@ -100,6 +101,20 @@ class RugCheckClient:
                 if pcts:
                     lp_locked_pct = min(pcts)  # worst-case across pools
 
+            # A single wallet (often the deployer's, sometimes disguised as
+            # several) holding a large chunk of supply can crash the price
+            # by dumping alone, even with LP fully locked -- worst-case
+            # (the single largest holder) is what matters here, same
+            # "worst case wins" logic as lp_locked_pct above.
+            top_holders = data.get("topHolders") or []
+            top_holder_pct = None
+            if isinstance(top_holders, list):
+                holder_pcts = [
+                    h.get("pct") for h in top_holders if isinstance(h, dict) and isinstance(h.get("pct"), (int, float))
+                ]
+                if holder_pcts:
+                    top_holder_pct = max(holder_pcts)
+
             return RugRiskReport(
                 token_address=token_address,
                 score=float(data.get("score", 0) or 0),
@@ -112,6 +127,7 @@ class RugCheckClient:
                     token_meta.get("freezeAuthority") is None if "freezeAuthority" in token_meta else None
                 ),
                 lp_locked_pct=lp_locked_pct,
+                top_holder_pct=top_holder_pct,
             )
         except (AttributeError, TypeError, ValueError) as exc:
             logger.warning("RugCheck response for %s didn't match expected shape: %s", token_address, exc)

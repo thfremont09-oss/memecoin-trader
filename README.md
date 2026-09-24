@@ -397,6 +397,12 @@ extra screening before a buy, all configurable under `entry:` in
   requires at least this much LP actually locked/burned, when RugCheck
   reports it — an unlocked pool means the deployer can pull all liquidity
   whenever they want.
+- **Top-holder concentration cap** (`entry.rug_check.max_top_holder_pct`,
+  default 15%): blocks the trade if a single wallet holds more than this
+  share of total supply, when RugCheck reports it — LP being locked doesn't
+  stop a whale (often the deployer, sometimes disguised across a few
+  linked wallets) from just dumping their own bag and crashing the price
+  regardless.
 - **Liquidity-to-FDV ratio** (`entry.min_liquidity_to_fdv_pct`, default 3%):
   skips tokens whose liquidity is a razor-thin sliver of their reported
   valuation — an easy setup to manipulate or rug.
@@ -688,12 +694,15 @@ A red hazard-striped button next to the caution slider. Clicking it:
    position sizing, lower liquidity/volume/LP-lock floors, more tolerance
    for RugCheck warning flags, and the ML confidence gate is off entirely
    (predicting normal-strategy trade quality contradicts a mode built to
-   grab whatever clears the safety bar). The first candidate that clears
+   grab whatever clears the safety bar). Of everything that clears
    what's left — a real RugCheck danger-flag veto, `fail_closed` behavior
    if it can't be verified at all, and the hardcoded mint/freeze-authority
-   checks, none of which are loosened — gets as much cash as possible put
-   into it, capped at `big_risk.max_position_usd` (default $100, so this
-   stays a fixed-size gamble rather than scaling up as the account grows).
+   checks, none of which are loosened — the strongest candidate that poll
+   (ranked by the trained ML model's predicted quality when one exists,
+   else combined signal score with any corroboration bonus, liquidity
+   depth as a tiebreak) gets as much cash as possible put into it, capped
+   at `big_risk.max_position_usd` (default $100, so this stays a
+   fixed-size gamble rather than scaling up as the account grows).
    Red siren lights flash across
    the page while this is happening (with a synthesized air-raid-style
    siren sound — two detuned sawtooth oscillators for a buzzy "rotating

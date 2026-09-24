@@ -65,6 +65,7 @@ def make_rug_report(
     danger_flags: tuple[str, ...] = (),
     warning_flags: tuple[str, ...] = (),
     lp_locked_pct: float | None = 90.0,
+    top_holder_pct: float | None = 5.0,
 ) -> RugRiskReport:
     return RugRiskReport(
         token_address=token_address,
@@ -74,6 +75,7 @@ def make_rug_report(
         mint_authority_renounced=True,
         freeze_authority_renounced=True,
         lp_locked_pct=lp_locked_pct,
+        top_holder_pct=top_holder_pct,
     )
 
 
