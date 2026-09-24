@@ -18,20 +18,20 @@ def buy_fill(price="1.0", quantity="20", amount="20", fee="0.2"):
     )
 
 
-def test_starting_cash_is_1000(ledger):
-    assert ledger.get_cash_usd() == Decimal("1000")
+def test_starting_cash_is_100(ledger):
+    assert ledger.get_cash_usd() == Decimal("100")
 
 
 def test_deposit_cash_adds_to_balance(ledger):
     new_cash = ledger.deposit_cash(Decimal("20"))
-    assert new_cash == Decimal("1020")
-    assert ledger.get_cash_usd() == Decimal("1020")
+    assert new_cash == Decimal("120")
+    assert ledger.get_cash_usd() == Decimal("120")
 
 
 def test_deposit_cash_raises_starting_balance_so_return_stays_accurate(ledger):
     ledger.deposit_cash(Decimal("20"))
     state = ledger.get_portfolio_state()
-    assert state.starting_balance_usd == Decimal("1020")
+    assert state.starting_balance_usd == Decimal("120")
     # a deposit alone shouldn't look like trading profit
     assert state.cash_usd - state.starting_balance_usd == Decimal("0")
 
@@ -55,7 +55,7 @@ def test_open_position_deducts_cash_including_fee(ledger):
         entry_liquidity_usd=Decimal("20000"),
         mode="paper",
     )
-    assert ledger.get_cash_usd() == Decimal("1000") - Decimal("20") - Decimal("0.2")
+    assert ledger.get_cash_usd() == Decimal("100") - Decimal("20") - Decimal("0.2")
 
     positions = ledger.get_open_positions()
     assert len(positions) == 1
@@ -65,7 +65,7 @@ def test_open_position_deducts_cash_including_fee(ledger):
 
 def test_open_position_rejects_insufficient_cash(ledger):
     signal = make_signal()
-    fill = buy_fill(price="1.0", quantity="2000", amount="2000", fee="20")
+    fill = buy_fill(price="1.0", quantity="200", amount="200", fee="2")
     with pytest.raises(InsufficientCashError):
         ledger.open_position(
             token_address=signal.token_address,
@@ -76,7 +76,7 @@ def test_open_position_rejects_insufficient_cash(ledger):
             entry_liquidity_usd=Decimal("20000"),
             mode="paper",
         )
-    assert ledger.get_cash_usd() == Decimal("1000")  # untouched on failure
+    assert ledger.get_cash_usd() == Decimal("100")  # untouched on failure
 
 
 def _open(ledger, quantity="20", amount="20", fee="0.2", source="twitter_mock", token_address=None):
@@ -110,7 +110,7 @@ def test_full_sell_realizes_pnl_and_closes_position(ledger):
 
     state = ledger.get_portfolio_state()
     assert state.realized_pnl_usd == expected_pnl
-    assert state.cash_usd == Decimal("1000") - Decimal("20.2") + (Decimal("40") - Decimal("0.4"))
+    assert state.cash_usd == Decimal("100") - Decimal("20.2") + (Decimal("40") - Decimal("0.4"))
 
 
 def test_partial_sell_keeps_position_open_with_reduced_quantity(ledger):
@@ -154,7 +154,7 @@ def test_equity_snapshot_and_curve(ledger):
     ledger.record_equity_snapshot(Decimal("25"))
     curve = ledger.get_equity_curve()
     assert len(curve) == 1
-    assert curve[0]["equity_usd"] == pytest.approx(979.8 + 25)  # 1000 - 20.2 cash + 25 positions value
+    assert curve[0]["equity_usd"] == pytest.approx(79.8 + 25)  # 100 - 20.2 cash + 25 positions value
 
 
 def _insert_equity_snapshot(conn, recorded_at: str, equity: str = "100"):

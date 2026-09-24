@@ -15,7 +15,7 @@ from memecoin_trader.signals.base import SocialSignal
 @pytest.fixture
 def conn(tmp_path):
     c = get_connection(tmp_path / "test.db")
-    init_db(c, Decimal("1000"))
+    init_db(c, Decimal("100"))
     yield c
     c.close()
 
