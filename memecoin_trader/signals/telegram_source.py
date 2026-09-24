@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import time
 from collections import defaultdict
 from datetime import datetime, timezone
@@ -72,9 +73,39 @@ class TelegramSource(SignalSource):
         logger.info("resolved cashtag $%s -> %s via DexScreener search", symbol, best.token_address)
         return best.token_address
 
+    def _ensure_loop(self) -> asyncio.AbstractEventLoop:
+        """A dedicated background thread running its own perpetual event
+        loop, isolated from whatever asyncio state the rest of the process
+        has on the main/engine thread (e.g. Playwright's sync API, used by
+        the browser-scraper Twitter source, keeps its own loop alive there
+        for the life of the process -- sharing that thread caused
+        `RuntimeError: Cannot run the event loop while another loop is
+        running`). Every Telethon call is submitted onto this loop via
+        run_coroutine_threadsafe from whichever thread calls poll()."""
+        if self._loop is not None:
+            return self._loop
+        self._loop = asyncio.new_event_loop()
+        threading.Thread(target=self._loop.run_forever, daemon=True, name="telegram-source-loop").start()
+        return self._loop
+
+    async def _connect(self):
+        from telethon import TelegramClient
+
+        client = TelegramClient(
+            str(self._session_path), int(self._secrets.telegram_api_id), self._secrets.telegram_api_hash
+        )
+        await client.connect()
+        if not await client.is_user_authorized():
+            await client.disconnect()
+            raise SessionExpiredError(
+                "Telegram session is not authorized -- run: python scripts/telegram_login_setup.py"
+            )
+        return client
+
+    def _run(self, coro):
+        return asyncio.run_coroutine_threadsafe(coro, self._ensure_loop()).result()
+
     def _ensure_client(self):
-        if self._client is not None:
-            return self._client
         # Deliberately NOT using telethon.sync here -- its implicit
         # "make every async method synchronous" wrapper depends on the
         # client's stored loop never being observed as "running" by the time
@@ -83,25 +114,11 @@ class TelegramSource(SignalSource):
         # done any work at all, and every call after that silently returns
         # an unresolved coroutine instead of blocking for the real result --
         # e.g. `for msg in client.get_messages(...)` failing with
-        # "'coroutine' object is not iterable". Owning a dedicated loop and
-        # driving Telethon's real async methods ourselves via
-        # run_until_complete sidesteps that class of bug entirely, on any
-        # platform, since we're not relying on telethon.sync's heuristic.
-        from telethon import TelegramClient
-
-        self._loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self._loop)
-        client = TelegramClient(
-            str(self._session_path), int(self._secrets.telegram_api_id), self._secrets.telegram_api_hash
-        )
-        self._loop.run_until_complete(client.connect())
-        if not self._loop.run_until_complete(client.is_user_authorized()):
-            self._loop.run_until_complete(client.disconnect())
-            raise SessionExpiredError(
-                "Telegram session is not authorized -- run: python scripts/telegram_login_setup.py"
-            )
-        self._client = client
-        return client
+        # "'coroutine' object is not iterable".
+        if self._client is not None:
+            return self._client
+        self._client = self._run(self._connect())
+        return self._client
 
     @staticmethod
     def _engagement_score(views: int, forwards: int) -> float:
@@ -119,7 +136,7 @@ class TelegramSource(SignalSource):
         messages = []
         for channel in self._config.channels:
             try:
-                fetched = self._loop.run_until_complete(
+                fetched = self._run(
                     client.get_messages(channel, limit=self._config.max_messages_per_channel_per_poll)
                 )
                 for msg in fetched:
