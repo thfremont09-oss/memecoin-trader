@@ -490,6 +490,27 @@ def test_big_risk_search_buys_first_qualifying_signal_ignoring_score_threshold(c
     assert state.position_id == positions[0].id
 
 
+def test_big_risk_search_picks_the_strongest_candidate_not_the_first(conn):
+    engine, signal_source, market = build_engine(conn)
+    weak_token = "TOKENRISK000000000000000000000000000000016"
+    strong_token = "TOKENRISK000000000000000000000000000000017"
+    market.pairs[weak_token] = make_pair(token_address=weak_token, price_usd="1.0")
+    market.pairs[strong_token] = make_pair(token_address=strong_token, price_usd="1.0")
+    # the weaker-scored candidate is queued (and would be polled) first --
+    # ranking, not arrival order, should decide which one gets bought
+    signal_source.queue = [
+        make_signal(token_address=weak_token, score=10),
+        make_signal(token_address=strong_token, score=90),
+    ]
+
+    engine.ledger.start_big_risk_search()
+    engine._big_risk_search()
+
+    positions = engine.ledger.get_open_positions()
+    assert len(positions) == 1
+    assert positions[0].token_address == strong_token
+
+
 def test_big_risk_search_caps_the_buy_at_max_position_usd_not_all_of_cash(conn):
     engine, signal_source, market = build_engine(conn)
     engine.ledger.deposit_cash(Decimal("200"))  # cash is now $300 -- well above the $100 cap

@@ -497,12 +497,15 @@ class TradingEngine:
         """One search attempt for Big Risk mode: polls every signal source
         exactly like the normal flow, but evaluates candidates against a
         deliberately loosened set of filters (see big_risk.* in
-        config.yaml) instead of the normal entry.* ones, and any signal
-        that clears them gets as much of the cash balance as it can, capped
-        at big_risk.max_position_usd. Buys the first one found and switches
-        to "invested"; if nothing clears the filters
-        this attempt, tick() will call this again next poll until the
-        search window in tick() times out."""
+        config.yaml) instead of the normal entry.* ones. Every signal that
+        clears them this poll is ranked -- by the trained ML model's
+        predicted trade quality when one exists, else by combined signal
+        score (including any corroboration bonus), with liquidity as a
+        tiebreak -- and the strongest one gets as much of the cash balance
+        as it can, capped at big_risk.max_position_usd (falling back to the
+        next-strongest if its buy execution fails for some reason). If
+        nothing clears the filters this attempt, tick() will call this
+        again next poll until the search window in tick() times out."""
         already_open = self.ledger.get_open_positions()
         if already_open:
             # Should only happen if a previous call bought something but
@@ -554,6 +557,7 @@ class TradingEngine:
             ml=dataclasses.replace(self.settings.entry.ml, enabled=br.ml_gate_enabled),
         )
 
+        candidates = []  # (rank_key, signal, market, decision, features), best first once sorted
         for signal in signals:
             market = self.market.get_best_pair_for_token(self.settings.chain_id, signal.token_address)
             if market is not None:
@@ -573,13 +577,17 @@ class TradingEngine:
             features = (
                 extract_features(signal, market, rug_report, corroborating_sources) if market is not None else None
             )
+            # Computed whenever a trained model exists, regardless of
+            # big_risk.ml_gate_enabled -- that flag only controls whether
+            # evaluate_entry below is allowed to REJECT a candidate on it
+            # (left off by design: this mode's whole point is grabbing
+            # whatever clears the safety bar, not second-guessing it with
+            # normal-strategy quality predictions). Here it's used only to
+            # RANK candidates that already passed every safety filter --
+            # of those, which one does the trained model actually rate
+            # highest.
             ml_confidence = None
-            if (
-                features is not None
-                and entry_config.ml.enabled
-                and self.ml_model is not None
-                and self.ml_model.is_trained
-            ):
+            if features is not None and self.ml_model is not None and self.ml_model.is_trained:
                 ml_confidence = self.ml_model.predict_proba(features)
 
             ctx = EntryContext(
@@ -596,13 +604,37 @@ class TradingEngine:
                 ctx,
                 entry_config,
                 rug_report=rug_report,
-                ml_confidence=ml_confidence,
+                ml_confidence=ml_confidence if entry_config.ml.enabled else None,
                 corroborating_sources=corroborating_sources,
             )
             self.ledger.record_signal(signal, acted_on=decision is not None)
             if decision is None:
                 continue
 
+            # Ranked by ML confidence first (the one real predictive signal
+            # of trade quality here, when a model's actually been trained),
+            # then combined score/corroboration, then liquidity depth as a
+            # last tiebreak (deeper pool, harder to rug) -- so of everything
+            # that cleared the safety bar this poll, the strongest evidence
+            # wins instead of whichever signal happened to arrive first.
+            rank_key = (
+                ml_confidence if ml_confidence is not None else -1.0,
+                effective_score(signal, corroborating_sources, entry_config),
+                float(market.liquidity_usd),
+            )
+            candidates.append((rank_key, signal, market, decision, features))
+
+        if not candidates:
+            return
+
+        candidates.sort(key=lambda c: c[0], reverse=True)
+        if len(candidates) > 1:
+            logger.info(
+                "BIG RISK: %d candidate(s) cleared the filters this poll, trying the strongest first",
+                len(candidates),
+            )
+
+        for _rank_key, signal, market, decision, features in candidates:
             logger.info(
                 "BIG RISK: target found — %s (%s) score=%.1f amount=$%s",
                 signal.symbol,
