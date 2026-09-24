@@ -108,8 +108,8 @@ class TelegramSource(SignalSource):
                         continue
                     score = self._engagement_score(msg.views or 0, msg.forwards or 0)
                     messages.append((msg.message, score, f"{channel}:{msg.id}"))
-            except Exception:
-                logger.warning("Telegram channel %s fetch failed, skipping it this poll", channel)
+            except Exception as exc:
+                logger.warning("Telegram channel %s fetch failed, skipping it this poll: %s", channel, exc)
         return messages
 
     def poll(self) -> list[SocialSignal]:
