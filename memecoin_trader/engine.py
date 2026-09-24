@@ -896,3 +896,34 @@ def create_engine(settings: Settings) -> TradingEngine:
         )
 
     return TradingEngine(settings, conn, market_client, signal_source, executor, rug_client, ml_model)
+
+
+class _NullSignalSource(SignalSource):
+    """A signal source that never has anything to say -- used for one-off
+    action engines (see create_action_engine) that never call .poll()."""
+
+    name = "none"
+
+    def poll(self) -> list[SocialSignal]:
+        return []
+
+
+def create_action_engine(settings: Settings) -> TradingEngine:
+    """Like create_engine, but skips building the real signal source stack
+    entirely -- for one-off dashboard actions (sell one position, stop/
+    cancel/start Big Risk, go offline/online, manual buy) that only ever
+    touch the ledger, market client, and executor, never
+    signal_source.poll() (that's only called from _poll_signals/
+    _big_risk_search, part of the persistent engine's own tick() loop, not
+    any of these). Building the full stack for a one-off action would mean
+    launching a Playwright browser and connecting live to Telegram just to
+    flip a database flag or sell one position -- slow, and any hiccup in a
+    source that has nothing to do with the actual requested action would
+    fail it outright.
+    """
+    conn = get_connection(DB_PATH)
+    init_db(conn, Decimal(str(settings.starting_balance_usd)))
+    market_client = DexScreenerClient()
+    executor = build_executor(settings)
+    rug_client = RugCheckClient()
+    return TradingEngine(settings, conn, market_client, _NullSignalSource(), executor, rug_client)

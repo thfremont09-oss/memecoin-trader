@@ -153,11 +153,11 @@ def cmd_liquidate(args: argparse.Namespace) -> int:
     stop to run this in time anyway, and wiring it into routine
     restarts/updates would sell everything on every `update.ps1` run.
     """
-    from memecoin_trader.engine import create_engine
+    from memecoin_trader.engine import create_action_engine
 
     setup_logging()
     settings = load_settings()
-    engine = create_engine(settings)
+    engine = create_action_engine(settings)
 
     open_positions = engine.ledger.get_open_positions()
     if not open_positions:
@@ -184,11 +184,11 @@ def cmd_liquidate(args: argparse.Namespace) -> int:
 
 def cmd_sell(args: argparse.Namespace) -> int:
     """Sells one open position right now, at current market price."""
-    from memecoin_trader.engine import create_engine
+    from memecoin_trader.engine import create_action_engine
 
     setup_logging()
     settings = load_settings()
-    engine = create_engine(settings)
+    engine = create_action_engine(settings)
 
     position = engine.ledger.get_open_position_for_token(args.token_address)
     if position is None:
@@ -215,11 +215,11 @@ def cmd_offline(args: argparse.Namespace) -> int:
     position that couldn't be sold, and so `online` can flip it back) — this
     is a "stop trading" switch, not a process kill.
     """
-    from memecoin_trader.engine import create_engine
+    from memecoin_trader.engine import create_action_engine
 
     setup_logging()
     settings = load_settings()
-    engine = create_engine(settings)
+    engine = create_action_engine(settings)
 
     open_positions = engine.ledger.get_open_positions()
     if open_positions:

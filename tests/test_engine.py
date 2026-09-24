@@ -6,8 +6,9 @@ import time
 from dataclasses import replace
 from decimal import Decimal
 
+import memecoin_trader.engine as engine_module
 from memecoin_trader.config import load_settings
-from memecoin_trader.engine import TradingEngine, apply_caution_level
+from memecoin_trader.engine import TradingEngine, apply_caution_level, create_action_engine
 from memecoin_trader.execution.paper_executor import PaperExecutor
 from tests.conftest import make_pair, make_rug_report, make_signal
 
@@ -899,3 +900,20 @@ def test_manual_buy_position_gets_normal_exit_protection_afterward(conn):
     assert engine.ledger.get_open_positions() == []
     sell_trades = [t for t in engine.ledger.get_recent_trades() if t.side == "sell"]
     assert sell_trades[0].reason == "stop_loss"
+
+
+def test_create_action_engine_skips_the_real_signal_source(tmp_path, monkeypatch):
+    # Sell/stop/offline/online/manual-buy/big-risk-start never call
+    # signal_source.poll() -- create_action_engine must not pay the cost
+    # (or risk the failure modes) of building the real one, e.g. launching
+    # a Playwright browser or connecting live to Telegram, just for those.
+    monkeypatch.setattr(engine_module, "DB_PATH", tmp_path / "action_engine_test.db")
+
+    def _boom(settings, market_client):
+        raise AssertionError("create_action_engine must not build the real signal source")
+
+    monkeypatch.setattr(engine_module, "build_signal_source", _boom)
+
+    engine = create_action_engine(load_settings())
+
+    assert engine.signal_source.poll() == []

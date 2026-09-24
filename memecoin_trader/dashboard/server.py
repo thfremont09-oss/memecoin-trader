@@ -94,10 +94,10 @@ def api_big_risk_start(_auth: None = Depends(require_auth)):
     engine instance against the shared SQLite file, since the dashboard
     and the running engine are separate processes.
     """
-    from memecoin_trader.engine import create_engine
+    from memecoin_trader.engine import create_action_engine
 
     settings = load_settings()
-    engine = create_engine(settings)
+    engine = create_action_engine(settings)
 
     state = engine.ledger.get_big_risk_state()
     if state.mode != "idle":
@@ -132,10 +132,10 @@ def api_big_risk_cancel(_auth: None = Depends(require_auth)):
 def api_big_risk_stop(_auth: None = Depends(require_auth)):
     """Manually sells the Big Risk position early, same idea as the
     per-position Sell button."""
-    from memecoin_trader.engine import create_engine
+    from memecoin_trader.engine import create_action_engine
 
     settings = load_settings()
-    engine = create_engine(settings)
+    engine = create_action_engine(settings)
 
     state = engine.ledger.get_big_risk_state()
     if state.mode != "invested" or state.position_id is None:
@@ -190,10 +190,10 @@ def api_manual_buy(token_address: str, amount_usd: float, _auth: None = Depends(
     filters entirely -- see TradingEngine.manual_buy for why. Once bought
     it's an ordinary position, protected by the normal exit rules from
     the engine's very next tick."""
-    from memecoin_trader.engine import create_engine
+    from memecoin_trader.engine import create_action_engine
 
     settings = load_settings()
-    engine = create_engine(settings)
+    engine = create_action_engine(settings)
     bought, message = engine.manual_buy(token_address, Decimal(str(amount_usd)))
     return {"bought": bought, "message": message}
 
@@ -209,10 +209,10 @@ def api_offline(_auth: None = Depends(require_auth)):
     Going offline stops new buys; the actual engine process keeps running and
     still protects any position that couldn't be sold below.
     """
-    from memecoin_trader.engine import create_engine
+    from memecoin_trader.engine import create_action_engine
 
     settings = load_settings()
-    engine = create_engine(settings)
+    engine = create_action_engine(settings)
 
     total = len(engine.ledger.get_open_positions())
     closed = engine.liquidate_all() if total else 0
@@ -238,10 +238,10 @@ def api_online(_auth: None = Depends(require_auth)):
 
 @app.post("/api/sell/{token_address}")
 def api_sell_one(token_address: str, _auth: None = Depends(require_auth)):
-    from memecoin_trader.engine import create_engine
+    from memecoin_trader.engine import create_action_engine
 
     settings = load_settings()
-    engine = create_engine(settings)
+    engine = create_action_engine(settings)
 
     position = engine.ledger.get_open_position_for_token(token_address)
     if position is None:
