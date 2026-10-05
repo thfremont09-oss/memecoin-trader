@@ -60,6 +60,7 @@ class EntryConfig:
     position_size_pct_of_cash: float
     min_trade_usd: float
     max_trade_usd: float
+    confidence_scaled_sizing: bool
     min_liquidity_to_fdv_pct: float
     max_price_change_5m_pct: float
     min_buy_sell_ratio: float

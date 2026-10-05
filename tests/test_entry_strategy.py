@@ -15,6 +15,7 @@ CONFIG = EntryConfig(
     position_size_pct_of_cash=0.20,
     min_trade_usd=5.0,
     max_trade_usd=40.0,
+    confidence_scaled_sizing=True,
     min_liquidity_to_fdv_pct=0.0,
     max_price_change_5m_pct=100000.0,
     min_buy_sell_ratio=0.0,
@@ -35,12 +36,40 @@ DEFAULT_CTX = EntryContext(
 )
 
 
-def test_happy_path_buys_pct_of_cash():
+def test_happy_path_buys_pct_of_cash_at_full_confidence():
     signal = make_signal(score=80)
     market = make_pair()
-    decision = evaluate_entry(signal, market, DEFAULT_CTX, CONFIG)
+    decision = evaluate_entry(signal, market, DEFAULT_CTX, CONFIG, ml_confidence=1.0)
     assert decision is not None
-    assert decision.amount_usd == Decimal("20")  # 20% of $100
+    assert decision.amount_usd == Decimal("20")  # full confidence -> the whole cash-scaled target (20% of $100)
+
+
+def test_lower_confidence_shrinks_the_position_toward_the_floor():
+    signal = make_signal(score=80)
+    market = make_pair()
+    full = evaluate_entry(signal, market, DEFAULT_CTX, CONFIG, ml_confidence=1.0).amount_usd
+    half = evaluate_entry(signal, market, DEFAULT_CTX, CONFIG, ml_confidence=0.5).amount_usd
+    assert Decimal("5") < half < full  # above the floor, but well below the full-confidence amount
+
+
+def test_confidence_falls_back_to_normalized_signal_score_without_ml():
+    market = make_pair()
+    weak = evaluate_entry(make_signal(score=60), market, DEFAULT_CTX, CONFIG).amount_usd
+    strong = evaluate_entry(make_signal(score=100), market, DEFAULT_CTX, CONFIG).amount_usd
+    assert weak < strong  # higher hype score -> treated as higher confidence -> bigger position
+
+
+def test_confidence_scaled_sizing_disabled_ignores_score_and_goes_for_cash_room():
+    # Big Risk's own entry_config override turns this off, since it also
+    # disables the score gate entirely -- a low score there isn't "low
+    # confidence," it's meaningless, and sizing should go as close to
+    # cash_room as possible regardless.
+    config = replace(CONFIG, confidence_scaled_sizing=False, mention_score_threshold=-1.0)
+    market = make_pair()
+    low_score = evaluate_entry(make_signal(score=1), market, DEFAULT_CTX, config).amount_usd
+    high_score = evaluate_entry(make_signal(score=100), market, DEFAULT_CTX, config).amount_usd
+    expected = Decimal("100") * Decimal(str(config.position_size_pct_of_cash))  # cash_room, well under max_trade_usd
+    assert low_score == high_score == expected
 
 
 def test_rejects_low_score():
@@ -106,19 +135,19 @@ def test_rejects_insufficient_cash():
     assert evaluate_entry(signal, market, ctx, CONFIG) is None
 
 
-def test_amount_is_capped_at_max_trade_usd():
+def test_amount_is_capped_at_max_trade_usd_even_at_full_confidence():
     signal = make_signal(score=80)
     market = make_pair()
     ctx = EntryContext(cash_usd=Decimal("1000"), open_position_count=0, already_holds_token=False, token_on_cooldown=False)
-    decision = evaluate_entry(signal, market, ctx, CONFIG)
-    assert decision.amount_usd == Decimal("40")
+    decision = evaluate_entry(signal, market, ctx, CONFIG, ml_confidence=1.0)
+    assert decision.amount_usd == Decimal("40")  # 20% of $1000 would be $200, well past the $40 cap
 
 
-def test_amount_is_floored_at_min_trade_usd():
+def test_amount_is_floored_at_min_trade_usd_even_at_full_confidence():
     signal = make_signal(score=80)
     market = make_pair()
     ctx = EntryContext(cash_usd=Decimal("10"), open_position_count=0, already_holds_token=False, token_on_cooldown=False)
-    decision = evaluate_entry(signal, market, ctx, CONFIG)
+    decision = evaluate_entry(signal, market, ctx, CONFIG, ml_confidence=1.0)
     # 20% of $10 = $2, floored up to min_trade_usd = $5, but capped at available cash
     assert decision.amount_usd == Decimal("5")
 

@@ -559,6 +559,7 @@ class TradingEngine:
             mention_score_threshold=-1.0,
             position_size_pct_of_cash=0.97,
             max_trade_usd=br.max_position_usd,
+            confidence_scaled_sizing=False,
             min_liquidity_usd=br.min_liquidity_usd,
             min_volume_24h_usd=br.min_volume_24h_usd,
             min_liquidity_to_fdv_pct=br.min_liquidity_to_fdv_pct,

@@ -35,6 +35,52 @@ def effective_score(signal: SocialSignal, corroborating_sources: int, config: En
     return signal.score
 
 
+def _confidence(
+    signal: SocialSignal, corroborating_sources: int, config: EntryConfig, ml_confidence: float | None
+) -> float:
+    """How sure we are this is a good trade, 0.0-1.0 -- the trained ML
+    model's own predicted P(profitable) when one was passed in, else the
+    combined hype score (including any corroboration bonus) normalized to
+    0-1, the same "stronger evidence" signal corroboration already uses
+    for gating. Used only for position sizing, never for the buy/no-buy
+    decision itself."""
+    if ml_confidence is not None:
+        return max(0.0, min(1.0, ml_confidence))
+    return max(0.0, min(1.0, effective_score(signal, corroborating_sources, config) / 100.0))
+
+
+def _position_amount(
+    signal: SocialSignal,
+    ctx: EntryContext,
+    config: EntryConfig,
+    ml_confidence: float | None,
+    corroborating_sources: int,
+) -> Decimal:
+    """Scales with both account size and confidence: the account can afford
+    a bigger bet as cash grows (up to max_trade_usd, a hard ceiling
+    regardless of balance), and within whatever room that leaves, a more
+    confident signal commits more of it -- so a well-funded, high-confidence
+    trade approaches the cap, a shaky one on that same account stays
+    modest, and a small account's trades barely move even at full
+    confidence."""
+    min_amount = Decimal(str(config.min_trade_usd))
+    max_amount = Decimal(str(config.max_trade_usd))
+    cash_target = ctx.cash_usd * Decimal(str(config.position_size_pct_of_cash))
+    cash_room = min(cash_target, max_amount)
+    if config.confidence_scaled_sizing:
+        confidence = Decimal(str(_confidence(signal, corroborating_sources, config, ml_confidence)))
+        amount = min_amount + confidence * (cash_room - min_amount)
+    else:
+        # Big Risk's own entry_config override turns this off: it disables
+        # the score gate entirely, so a signal's score here isn't a
+        # meaningful confidence reading, and this mode is meant to commit
+        # as close to cash_room (position_size_pct_of_cash=0.97, capped at
+        # max_position_usd) as it can regardless.
+        amount = cash_room
+    amount = max(amount, min_amount)
+    return min(amount, max_amount, ctx.cash_usd)
+
+
 def rejection_reason(
     signal: SocialSignal,
     market: PairInfo | None,
@@ -119,10 +165,7 @@ def rejection_reason(
     if ctx.cash_usd < Decimal(str(config.min_trade_usd)):
         return "insufficient_cash"
 
-    target = ctx.cash_usd * Decimal(str(config.position_size_pct_of_cash))
-    amount = max(Decimal(str(config.min_trade_usd)), target)
-    amount = min(amount, Decimal(str(config.max_trade_usd)), ctx.cash_usd)
-
+    amount = _position_amount(signal, ctx, config, ml_confidence, corroborating_sources)
     if amount < Decimal(str(config.min_trade_usd)):
         return "amount_below_minimum"
 
@@ -146,8 +189,5 @@ def evaluate_entry(
     ):
         return None
 
-    target = ctx.cash_usd * Decimal(str(config.position_size_pct_of_cash))
-    amount = max(Decimal(str(config.min_trade_usd)), target)
-    amount = min(amount, Decimal(str(config.max_trade_usd)), ctx.cash_usd)
-
+    amount = _position_amount(signal, ctx, config, ml_confidence, corroborating_sources)
     return EntryDecision(amount_usd=amount, reason="signal_entry")

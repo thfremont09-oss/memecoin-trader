@@ -25,9 +25,10 @@ entry:
   min_pair_age_minutes: 5            # avoid the first few minutes (sniper/instant-rug risk) — safety filter, unchanged
   max_pair_age_hours: 72             # only chase fresh hype, not old coins
   max_open_positions: 4              # back to 4 — fewer, more deliberate concurrent bets
-  position_size_pct_of_cash: 0.15    # was 0.20 — smaller fraction of cash per trade
+  position_size_pct_of_cash: 0.15    # was 0.20 — smaller fraction of cash per trade; this is the cash-scaling input to the confidence-based sizing below, not a flat position size
   min_trade_usd: 5.0
-  max_trade_usd: 25.0                # was 60 — smaller max bet size, scaled back down with the balance
+  max_trade_usd: 500.0                # NEW hard ceiling (was 25) — position size now scales with both account size and how confident the bot is (ML model's predicted quality once trained, else combined signal score/corroboration), between min_trade_usd and this cap -- see _position_amount() in entry_strategy.py. A small account stays small regardless of confidence; a well-funded, high-confidence trade approaches this cap, a shaky one on that same account stays well below it.
+  confidence_scaled_sizing: true      # NEW: enables the behavior above. big_risk.* turns this off for its own entry_config override -- that mode disables the score gate entirely, so its scores aren't a meaningful confidence signal, and it's meant to go as close to all-in as max_position_usd allows regardless
   min_liquidity_to_fdv_pct: 3.0      # tighter floor against thin-liquidity manipulation/rugs — kept, this is a safety filter
   max_price_change_5m_pct: 150.0     # back to 150 — don't chase as hot a pump
   min_buy_sell_ratio: 1.2            # was 1.0 — require healthier buy pressure, not just barely more buys than sells
