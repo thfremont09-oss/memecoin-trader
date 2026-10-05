@@ -199,6 +199,23 @@ def test_big_risk_start_sells_existing_positions_first(client, monkeypatch):
     assert Ledger(conn).get_open_positions() == []
 
 
+def test_big_risk_start_refuses_while_trading_is_offline(client):
+    # Arming a search while offline would self-cancel within one engine
+    # tick (tick() aborts a "searching" state the instant is_trading_enabled()
+    # is false) -- refuse up front with an actionable message instead of
+    # silently arming something doomed to immediately vanish.
+    c, db_path = client
+    conn = get_connection(db_path)
+    Ledger(conn).set_trading_enabled(False)
+
+    resp = c.post("/api/big-risk/start")
+    data = resp.json()
+    assert data["started"] is False
+    assert "offline" in data["message"].lower()
+
+    assert Ledger(conn).get_big_risk_state().mode == "idle"
+
+
 def test_big_risk_start_is_a_noop_while_already_active(client):
     c, _ = client
     c.post("/api/big-risk/start")

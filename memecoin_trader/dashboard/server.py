@@ -103,6 +103,18 @@ def api_big_risk_start(_auth: None = Depends(require_auth)):
     if state.mode != "idle":
         return {"started": False, "mode": state.mode, "message": "Big Risk is already active."}
 
+    if not engine.ledger.is_trading_enabled():
+        # The engine's own tick() aborts any Big Risk search the instant it
+        # sees trading is offline (see tick()'s "searching" branch) -- with
+        # only a log line, no visible explanation. Arming one here anyway
+        # would self-cancel within one tick (~5s) looking exactly like a
+        # bug, so refuse up front with an actionable message instead.
+        return {
+            "started": False,
+            "mode": state.mode,
+            "message": "Can't start Big Risk — trading is currently offline. Click Online first.",
+        }
+
     total = len(engine.ledger.get_open_positions())
     closed = engine.liquidate_all(reason="big_risk_start") if total else 0
     engine.ledger.start_big_risk_search()
