@@ -36,6 +36,18 @@ def test_deposit_cash_raises_starting_balance_so_return_stays_accurate(ledger):
     assert state.cash_usd - state.starting_balance_usd == Decimal("0")
 
 
+def test_set_cash_usd_overwrites_without_touching_starting_balance(ledger):
+    # Unlike deposit_cash, this re-syncs to an external source of truth
+    # (live mode's real wallet balance) -- it should NOT treat the
+    # difference as a deposit, so any drift legitimately shows up in
+    # total_return_usd (cash_usd - starting_balance_usd) instead of being
+    # hidden.
+    ledger.set_cash_usd(Decimal("42.50"))
+    state = ledger.get_portfolio_state()
+    assert state.cash_usd == Decimal("42.50")
+    assert state.starting_balance_usd == Decimal("100")
+
+
 def test_deposit_cash_rejects_non_positive_amounts(ledger):
     with pytest.raises(ValueError):
         ledger.deposit_cash(Decimal("0"))

@@ -30,6 +30,24 @@ class FakeMarket:
         return self.pairs.get(token_address)
 
 
+class FakeLiveExecutor:
+    """Stands in for LiveExecutor without touching real Solana/Jupiter --
+    only what _sync_live_wallet_balance needs (mode, get_wallet_balance_usd)."""
+
+    mode = "live"
+
+    def __init__(self, balance_usd=Decimal("0"), raises=False):
+        self.balance_usd = balance_usd
+        self.raises = raises
+        self.calls = 0
+
+    def get_wallet_balance_usd(self):
+        self.calls += 1
+        if self.raises:
+            raise RuntimeError("RPC unreachable")
+        return self.balance_usd
+
+
 class FakeRugCheckClient:
     """Stands in for the real (network-calling) RugCheckClient in tests —
     reports every token as clean unless a test explicitly overrides it."""
@@ -66,6 +84,36 @@ def test_poll_signals_logs_a_rejection_summary_when_nothing_buys(conn, caplog):
     assert any(
         "1 signal(s), 0 bought" in r.message and "score_below_threshold" in r.message for r in caplog.records
     )
+
+
+def test_poll_signals_syncs_cash_to_the_real_wallet_balance_in_live_mode(conn):
+    engine, signal_source, market = build_engine(conn)
+    live_executor = FakeLiveExecutor(balance_usd=Decimal("42.50"))
+    engine.executor = live_executor
+
+    engine._poll_signals()
+
+    assert live_executor.calls == 1
+    assert engine.ledger.get_cash_usd() == Decimal("42.50")
+
+
+def test_poll_signals_does_not_touch_cash_in_paper_mode(conn):
+    engine, signal_source, market = build_engine(conn)
+    starting_cash = engine.ledger.get_cash_usd()
+
+    engine._poll_signals()
+
+    assert engine.ledger.get_cash_usd() == starting_cash
+
+
+def test_live_wallet_sync_failure_keeps_last_known_cash_instead_of_blocking(conn):
+    engine, signal_source, market = build_engine(conn)
+    starting_cash = engine.ledger.get_cash_usd()
+    engine.executor = FakeLiveExecutor(raises=True)
+
+    engine._poll_signals()  # should not raise
+
+    assert engine.ledger.get_cash_usd() == starting_cash
 
 
 def test_full_cycle_buy_then_stop_loss_sell(conn):

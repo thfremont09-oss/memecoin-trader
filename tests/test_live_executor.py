@@ -116,3 +116,21 @@ def test_sell_enforces_the_live_cap_before_touching_the_network():
     market = make_pair(price_usd="1.0")
     with pytest.raises(LiveTradingDisabledError, match="exceeds the configured live safety cap"):
         executor.sell("SOMEMINT", Decimal("1000"), market)  # $1000 worth, cap is $5
+
+
+def test_get_wallet_balance_usd_converts_lamports_to_usd():
+    session = MagicMock()
+    session.post.return_value = fake_response({"result": {"value": 2_000_000_000}})  # getBalance: 2 SOL
+    session.get.return_value = fake_response({"outAmount": "150000000"})  # Jupiter quote: $150/SOL (6-decimal USDC)
+    executor = make_executor(session)
+
+    assert executor.get_wallet_balance_usd() == Decimal("300")  # 2 SOL * $150
+
+
+def test_get_wallet_balance_usd_raises_on_rpc_error_instead_of_guessing():
+    session = MagicMock()
+    session.post.return_value = fake_response({"error": {"message": "unreachable"}})
+    executor = make_executor(session)
+
+    with pytest.raises(RuntimeError, match="unreachable"):
+        executor.get_wallet_balance_usd()

@@ -93,6 +93,26 @@ class LiveExecutor(Executor):
                 f"trade of ${usd_amount} exceeds the configured live safety cap of ${cap}"
             )
 
+    def get_wallet_balance_usd(self) -> Decimal:
+        """The real on-chain SOL balance of this wallet, converted to USD --
+        ground truth for how much is actually available to trade with,
+        independent of the ledger's own cash_usd bookkeeping (which can
+        drift from reality: FillResult.fee_usd is reported as 0 here since
+        the real network/DEX fee is embedded in the swap's actual output
+        amount instead, and nothing in the ledger knows about a manual
+        deposit/withdrawal made directly to this wallet)."""
+        payload = {"jsonrpc": "2.0", "id": 1, "method": "getBalance", "params": [self.public_key]}
+        resp = self._session.post(self._rpc_url, json=payload, timeout=15)
+        resp.raise_for_status()
+        result = resp.json()
+        if "error" in result:
+            raise RuntimeError(f"Solana RPC couldn't fetch wallet balance: {result['error']}")
+        lamports = result.get("result", {}).get("value")
+        if lamports is None:
+            raise RuntimeError("Solana RPC balance response had no value field")
+        sol_balance = Decimal(lamports) / LAMPORTS_PER_SOL
+        return sol_balance * self._get_sol_price_usd()
+
     def _get_mint_decimals(self, token_mint: str) -> int:
         """Real decimals for this specific mint, via the same RPC endpoint
         used for everything else -- memecoins are usually 6 decimals but

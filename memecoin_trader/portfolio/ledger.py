@@ -130,6 +130,20 @@ class Ledger:
         )
         return new_cash
 
+    def set_cash_usd(self, amount: Decimal) -> None:
+        """Overwrites cash_usd directly -- unlike deposit_cash, does NOT
+        touch starting_balance_usd, so this is for re-syncing to an
+        external source of truth (live mode's real on-chain wallet
+        balance), not for recording a deposit/withdrawal event. Any drift
+        this corrects (e.g. real network/DEX fees that live fills don't
+        itemize) legitimately shows up in total_return_usd, since it's a
+        real change in the account's real value.
+        """
+        self._conn.execute(
+            "UPDATE portfolio_state SET cash_usd = ?, updated_at = ? WHERE id = 1",
+            (str(amount), _now_iso()),
+        )
+
     def is_trading_enabled(self) -> bool:
         return self.get_portfolio_state().trading_enabled
 

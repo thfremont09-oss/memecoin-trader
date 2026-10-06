@@ -330,7 +330,25 @@ class TradingEngine:
             self._maybe_retrain_ml_model()
             self._last_ml_check = now
 
+    def _sync_live_wallet_balance(self) -> None:
+        """Live mode only: re-syncs the ledger's cash_usd to the wallet's
+        real on-chain SOL balance before it's used for any entry decision,
+        so sizing (and the dashboard) reflect the truth rather than
+        whatever the ledger's own bookkeeping drifted to -- see
+        LiveExecutor.get_wallet_balance_usd for why that drift happens.
+        A no-op in paper mode. Failures (RPC hiccup) just keep last-known
+        cash_usd for this cycle rather than blocking trading."""
+        if self.executor.mode != "live":
+            return
+        try:
+            real_balance = self.executor.get_wallet_balance_usd()
+        except Exception:
+            logger.exception("failed to sync live wallet balance -- using last-known cash_usd this cycle")
+            return
+        self.ledger.set_cash_usd(real_balance)
+
     def _poll_signals(self) -> None:
+        self._sync_live_wallet_balance()
         try:
             signals = self.signal_source.poll()
         except Exception:
@@ -534,6 +552,7 @@ class TradingEngine:
             self.ledger.set_big_risk_invested(already_open[0].id)
             return
 
+        self._sync_live_wallet_balance()
         try:
             signals = self.signal_source.poll()
         except Exception:
