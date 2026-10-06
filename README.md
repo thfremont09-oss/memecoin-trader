@@ -1079,9 +1079,6 @@ strategy's position sizing.
 **Before risking real money:**
 
 - Test with a fresh wallet funded with only a few dollars of SOL.
-- Note the `LiveExecutor.sell()` decimals caveat in the code — it currently
-  assumes 6-decimal SPL tokens (true for most memecoins, not guaranteed).
-  Verify the mint's actual decimals before trusting a live sell size.
 - Watch the first several trades closely via `status`/`dashboard` and the
   Solana transaction signatures logged for each fill.
 - Get real Twitter/X API access too — trading real money on the simulated

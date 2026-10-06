@@ -93,6 +93,22 @@ class LiveExecutor(Executor):
                 f"trade of ${usd_amount} exceeds the configured live safety cap of ${cap}"
             )
 
+    def _get_mint_decimals(self, token_mint: str) -> int:
+        """Real decimals for this specific mint, via the same RPC endpoint
+        used for everything else -- memecoins are usually 6 decimals but
+        that's never guaranteed, and selling with the wrong assumption
+        sends Jupiter a quantity off by orders of magnitude."""
+        payload = {"jsonrpc": "2.0", "id": 1, "method": "getTokenSupply", "params": [token_mint]}
+        resp = self._session.post(self._rpc_url, json=payload, timeout=15)
+        resp.raise_for_status()
+        result = resp.json()
+        if "error" in result:
+            raise RuntimeError(f"Solana RPC couldn't look up decimals for {token_mint}: {result['error']}")
+        decimals = result.get("result", {}).get("value", {}).get("decimals")
+        if decimals is None:
+            raise RuntimeError(f"Solana RPC response for {token_mint} had no decimals field")
+        return int(decimals)
+
     def _get_quote(self, input_mint: str, output_mint: str, amount_atomic: int) -> dict:
         params = {
             "inputMint": input_mint,
@@ -165,10 +181,8 @@ class LiveExecutor(Executor):
     def sell(self, token_address: str, quantity: Decimal, market: PairInfo) -> FillResult:
         usd_value_estimate = quantity * market.price_usd
         self._check_cap(usd_value_estimate)
-        # NOTE: this assumes 9 decimals (SOL-style); most SPL memecoins use 6.
-        # Fetching real mint decimals before going live is a required follow-up
-        # — see README "Going live" checklist.
-        amount_atomic = int(quantity * Decimal(1_000_000))
+        decimals = self._get_mint_decimals(token_address)
+        amount_atomic = int(quantity * (Decimal(10) ** decimals))
 
         quote = self._get_quote(token_address, SOL_MINT, amount_atomic)
         tx_sig, quote = self._execute_swap(quote)
