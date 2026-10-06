@@ -11,10 +11,10 @@ chain:
 
 # How often the engine does things, in seconds.
 timing:
-  tick_seconds: 5                    # how often the main loop wakes up
+  tick_seconds: 2                    # how often the main loop wakes up -- lowered from 5 so open-position checks (below) can react faster now that real money is on the line
   signal_poll_interval_seconds: 45   # back to 45 — less frantic, only act on hype that's actually persisted a bit
-  position_check_interval_seconds: 5  # matches the dashboard's 5s auto-refresh so prices/positions actually update every reload
-  equity_snapshot_interval_seconds: 5  # same reason, for the equity chart
+  position_check_interval_seconds: 2  # was 5 -- real open positions (stop-loss/trailing-stop/rug exits) get re-checked against live prices this often now, not just the dashboard display
+  equity_snapshot_interval_seconds: 2  # same reason, for the equity chart
   liquidity_rug_check_interval_seconds: 30  # the "sudden liquidity drop" rug check compares against a reading from this far back, NOT position_check_interval_seconds -- a single 5s-apart comparison was firing on ordinary thin-pool price-impact noise, not just real rugs
   token_cooldown_minutes: 60         # back to 60 — more patient before re-buying a token you just sold
 

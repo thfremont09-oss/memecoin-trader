@@ -320,8 +320,8 @@
   <div class="subtitle">
     Simulated portfolio starting from ${{ "%.2f"|format(summary.starting_balance_usd) }} ·
     <span class="refresh-control">
-      <span id="refreshLabel">refreshes every 5s</span>
-      <input type="range" id="refreshIntervalSlider" class="refresh-slider" min="1" max="60" step="1" value="5">
+      <span id="refreshLabel">refreshes every 2s</span>
+      <input type="range" id="refreshIntervalSlider" class="refresh-slider" min="1" max="60" step="1" value="2">
     </span>
   </div>
 
@@ -1501,14 +1501,14 @@
     equityCurve = s.equity_curve.slice();
 
     // The persisted equity_history rows only advance as fast as the engine's
-    // own equity_snapshot_interval_seconds (5s by default), regardless of
+    // own equity_snapshot_interval_seconds (2s by default), regardless of
     // how fast the refresh-speed dial is set -- without this, the graph
     // would lag behind the number cards (which reflect live cash/position
     // marks every fetch) whenever the dial is set faster than that. Append
     // or refresh a synthetic "right now" point using the live equity value
     // this same response already carries (as of the backend's DexScreener
     // "quick" live-price lookup, that value itself now changes on every
-    // fetch too, not just every 5s), so the line actually advances every
+    // fetch too, not just every 2s), so the line actually advances every
     // tick -- as fast as the dial is set, not capped by the engine's own
     // cadence. The 300ms floor (well under the dial's fastest setting, 1s)
     // is just there so clock jitter can't occasionally mistake a real new
@@ -1697,7 +1697,7 @@
   // Self-rescheduling instead of setInterval, so dragging the refresh-speed
   // dial takes effect on the very next tick without clearing/recreating a
   // timer -- refreshIntervalMs is read fresh each time this fires.
-  let refreshIntervalMs = Math.max(1, parseInt(localStorage.getItem('refreshIntervalSeconds') || '5', 10)) * 1000;
+  let refreshIntervalMs = Math.max(1, parseInt(localStorage.getItem('refreshIntervalSeconds') || '2', 10)) * 1000;
   function scheduleNextRefresh() {
     setTimeout(async () => {
       await refreshDashboard();
