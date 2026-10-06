@@ -32,8 +32,15 @@ from memecoin_trader.market.dexscreener import PairInfo
 
 logger = logging.getLogger(__name__)
 
-JUPITER_QUOTE_URL = "https://quote-api.jup.ag/v6/quote"
-JUPITER_SWAP_URL = "https://quote-api.jup.ag/v6/swap"
+# Jupiter retired quote-api.jup.ag (its old v6 free-tier domain -- no DNS
+# record for it at all anymore, confirmed directly) in favor of this one;
+# api.jup.ag is the paid/API-key tier, lite-api.jup.ag the free rate-limited
+# one this bot uses. The request/response shape is the same as the old v6
+# endpoints this code was written against (quote/swap JSON fields
+# unchanged) as far as the docs show, but this hasn't been exercised
+# against the real endpoint yet -- watch the first live quote/swap closely.
+JUPITER_QUOTE_URL = "https://lite-api.jup.ag/swap/v1/quote"
+JUPITER_SWAP_URL = "https://lite-api.jup.ag/swap/v1/swap"
 SOL_MINT = "So11111111111111111111111111111111111111112"
 LAMPORTS_PER_SOL = Decimal(1_000_000_000)
 
