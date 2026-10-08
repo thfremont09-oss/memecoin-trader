@@ -46,6 +46,13 @@
   }
   .btn-sell:hover { background: rgba(239, 91, 91, 0.12); }
   .btn-sell:disabled { opacity: 0.4; cursor: default; background: transparent; }
+  .btn-close-external {
+    background: transparent; color: var(--muted); border: 1px solid var(--muted);
+    padding: 4px 10px; font-size: 12px; border-radius: 6px; cursor: pointer;
+    margin-left: 4px;
+  }
+  .btn-close-external:hover { background: rgba(255, 255, 255, 0.06); }
+  .btn-close-external:disabled { opacity: 0.4; cursor: default; background: transparent; }
   .btn-buy {
     background: transparent; color: var(--green); border: 1px solid var(--green);
     padding: 4px 10px; font-size: 12px; border-radius: 6px; cursor: pointer; font-weight: 600;
@@ -449,7 +456,10 @@
         </td>
         <td>{{ p.opened_at[:16] }}</td>
         <td>{{ p.signal_source }} ({{ "%.0f"|format(p.signal_score) }})</td>
-        <td><button class="btn-sell" data-token="{{ p.token_address }}" data-symbol="{{ p.symbol }}">Sell</button></td>
+        <td>
+          <button class="btn-sell" data-token="{{ p.token_address }}" data-symbol="{{ p.symbol }}">Sell</button>
+          <button class="btn-close-external" data-token="{{ p.token_address }}" data-symbol="{{ p.symbol }}" title="Use this if you already sold it directly in your wallet (Solflare, Phantom, etc.) -- this does NOT execute a swap, it only updates the ledger.">Already sold?</button>
+        </td>
       </tr>
       {% endfor %}
     </table>
@@ -1776,6 +1786,35 @@
 
   document.querySelectorAll('.btn-sell').forEach((btn) => {
     btn.addEventListener('click', () => sellOne(btn));
+  });
+
+  // For positions sold directly in your own wallet, outside the bot --
+  // nothing reconciles open positions against your wallet's actual token
+  // holdings on its own, so this just closes it in the ledger (no swap).
+  function closeExternally(btn) {
+    const symbol = btn.dataset.symbol;
+    const token = btn.dataset.token;
+    const input = prompt(
+      `Mark your ${symbol} position closed (no swap will be executed).\n\n` +
+      `If you know the total USD you actually received for it, enter it below ` +
+      `for an accurate P&L record. Leave blank to estimate from the current market price instead.`
+    );
+    if (input === null) return; // cancelled
+    const proceeds = input.trim();
+    let url = '/api/close-position/' + encodeURIComponent(token);
+    if (proceeds !== '') {
+      const parsed = Number(proceeds);
+      if (Number.isNaN(parsed)) {
+        alert('Not a number — try again.');
+        return;
+      }
+      url += '?proceeds_usd=' + encodeURIComponent(parsed);
+    }
+    postAction(url, btn, 'Closing...', 'Already sold?');
+  }
+
+  document.querySelectorAll('.btn-close-external').forEach((btn) => {
+    btn.addEventListener('click', () => closeExternally(btn));
   });
 
   // ---- Manual buy: search DexScreener, buy a self-chosen amount --------

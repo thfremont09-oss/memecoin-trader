@@ -284,6 +284,52 @@ def api_sell_one(token_address: str, _auth: None = Depends(require_auth)):
     return {"sold": sold, "message": message}
 
 
+@app.post("/api/close-position/{token_address}")
+def api_close_position(token_address: str, proceeds_usd: float | None = None, _auth: None = Depends(require_auth)):
+    """Marks an open position closed WITHOUT executing a swap -- for when
+    you already sold it yourself directly in your wallet (Solflare,
+    Phantom, etc.), outside the bot. Live mode's cash balance auto-syncs
+    from your real wallet, but open *positions* are pure ledger
+    bookkeeping -- nothing reconciles them against what your wallet
+    actually holds, so a position you closed elsewhere stays "open" here,
+    and the engine keeps trying (and failing) to exit it, until this is
+    called. `proceeds_usd` (optional) is the total USD you actually
+    received; omitted, this falls back to the current DexScreener price,
+    which is only an estimate of what you actually got."""
+    from memecoin_trader.execution.base import FillResult
+
+    settings = load_settings()
+    ledger = _ledger()
+    position = ledger.get_open_position_for_token(token_address)
+    if position is None:
+        return {"closed": False, "message": "That position isn't open anymore."}
+
+    if proceeds_usd is not None:
+        proceeds = Decimal(str(proceeds_usd))
+        price_usd = proceeds / position.quantity if position.quantity > 0 else Decimal(0)
+    else:
+        market = _market_client.get_best_pair_for_token(settings.chain_id, token_address)
+        if market is None:
+            return {
+                "closed": False,
+                "message": "No current market price available either -- re-send with the amount you actually received.",
+            }
+        price_usd = market.price_usd
+        proceeds = price_usd * position.quantity
+
+    fill = FillResult(price_usd=price_usd, quantity=position.quantity, amount_usd=proceeds, fee_usd=Decimal(0), tx_id=None)
+    ledger.apply_sell(
+        position=position,
+        fraction=Decimal(1),
+        fill=fill,
+        reason="manual_external_sell",
+        mark_take_profit_taken=True,
+        mode=settings.mode,
+    )
+    estimated_note = "" if proceeds_usd is not None else " (estimated from current market price, not your actual proceeds)"
+    return {"closed": True, "message": f"Closed {position.symbol} at ${proceeds:.2f}{estimated_note}."}
+
+
 @app.post("/api/caution-level/{level}")
 def api_set_caution_level(level: int, _auth: None = Depends(require_auth)):
     """Sets the caution-level slider. Takes effect on the engine's very next

@@ -214,6 +214,80 @@ def cmd_sell(args: argparse.Namespace) -> int:
     return 1
 
 
+def cmd_close_position(args: argparse.Namespace) -> int:
+    """Marks an open position closed in the ledger WITHOUT executing a swap --
+    for when you already sold it yourself directly in your wallet (Solflare,
+    Phantom, etc.), outside the bot. Nothing about live trading reconciles
+    the ledger's position tracking against your wallet's actual token
+    holdings on its own (only the SOL *cash* balance auto-syncs) -- a
+    position the bot didn't sell itself stays "open" here forever, and the
+    engine will keep trying (and failing) to exit it, unless you close it
+    with this."""
+    from memecoin_trader.execution.base import FillResult
+    from memecoin_trader.market.dexscreener import DexScreenerClient
+
+    setup_logging()
+    settings = load_settings()
+    conn = get_connection(DB_PATH)
+    init_db(conn, Decimal(str(settings.starting_balance_usd)))
+    ledger = Ledger(conn)
+
+    position = ledger.get_open_position_for_token(args.token_address)
+    if position is None:
+        print(f"No open position for {args.token_address}.")
+        return 1
+
+    if args.proceeds_usd is not None:
+        proceeds_usd = Decimal(str(args.proceeds_usd))
+        price_usd = proceeds_usd / position.quantity if position.quantity > 0 else Decimal(0)
+        price_source = f"${proceeds_usd} total proceeds (what you said you actually received)"
+    elif args.price is not None:
+        price_usd = Decimal(str(args.price))
+        proceeds_usd = price_usd * position.quantity
+        price_source = f"${price_usd}/token (what you provided)"
+    else:
+        market = DexScreenerClient().get_best_pair_for_token(settings.chain_id, args.token_address)
+        if market is None:
+            print("No --price/--proceeds-usd given, and current market data isn't available either.")
+            print("Re-run with --proceeds-usd <amount>, the actual total you received, for an accurate record.")
+            return 1
+        price_usd = market.price_usd
+        proceeds_usd = price_usd * position.quantity
+        price_source = (
+            f"${price_usd}/token, CURRENT market price -- not necessarily what you actually got. "
+            "Use --proceeds-usd for an accurate realized P&L."
+        )
+
+    print(f"Closing {position.symbol} ({args.token_address}) qty={position.quantity}")
+    print(f"Recording at: {price_source}")
+    print(f"Recorded proceeds: ${proceeds_usd:.4f}")
+    print("No swap will be executed -- this only updates the ledger/dashboard.")
+
+    if not args.yes:
+        answer = input("Type 'yes' to close this position in the ledger: ")
+        if answer.strip().lower() != "yes":
+            print("aborted.")
+            return 1
+
+    fill = FillResult(
+        price_usd=price_usd,
+        quantity=position.quantity,
+        amount_usd=proceeds_usd,
+        fee_usd=Decimal(0),
+        tx_id=None,
+    )
+    ledger.apply_sell(
+        position=position,
+        fraction=Decimal(1),
+        fill=fill,
+        reason="manual_external_sell",
+        mark_take_profit_taken=True,
+        mode=settings.mode,
+    )
+    print(f"Closed {position.symbol}. It will stop showing as an open position.")
+    return 0
+
+
 def cmd_offline(args: argparse.Namespace) -> int:
     """Sells everything, then stops the engine from opening new positions.
 
@@ -351,6 +425,19 @@ def build_parser() -> argparse.ArgumentParser:
     p_sell.add_argument("token_address")
     p_sell.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
     p_sell.set_defaults(func=cmd_sell)
+
+    p_close = sub.add_parser(
+        "close-position",
+        help="mark an open position closed in the ledger without executing a swap "
+        "(for when you already sold it directly in your wallet, outside the bot)",
+    )
+    p_close.add_argument("token_address")
+    p_close.add_argument("--price", type=float, help="USD price per token to record")
+    p_close.add_argument(
+        "--proceeds-usd", type=float, help="total USD you actually received for the whole position (most accurate)"
+    )
+    p_close.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
+    p_close.set_defaults(func=cmd_close_position)
 
     p_offline = sub.add_parser(
         "offline", help="sell everything and stop the engine from opening new positions"

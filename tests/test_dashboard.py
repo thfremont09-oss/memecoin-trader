@@ -150,6 +150,56 @@ def test_sell_one_sells_only_that_position(client, monkeypatch):
     assert remaining[0].token_address == token_b
 
 
+def test_close_position_with_explicit_proceeds_does_not_touch_market_data(client, monkeypatch):
+    # Explicit proceeds_usd must be trusted as-is -- no DexScreener call
+    # needed, and none should happen (the position may be for a token
+    # DexScreener has no data for at all, which is exactly the scenario
+    # this endpoint exists for).
+    c, db_path = client
+    token = "TOKENCLOSE111111111111111111111111111111111"
+    _seed_open_position(db_path, token)
+
+    def _boom(self, chain_id, addr):
+        raise AssertionError("should not call DexScreener when proceeds_usd is given")
+
+    monkeypatch.setattr(DexScreenerClient, "get_best_pair_for_token", _boom)
+
+    resp = c.post(f"/api/close-position/{token}?proceeds_usd=7.5")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["closed"] is True
+    assert "7.50" in data["message"]
+
+    conn = get_connection(db_path)
+    assert Ledger(conn).get_open_positions() == []
+
+
+def test_close_position_falls_back_to_market_price_without_proceeds(client, monkeypatch):
+    c, db_path = client
+    token = "TOKENCLOSE222222222222222222222222222222222"
+    _seed_open_position(db_path, token)  # 10 units
+    monkeypatch.setattr(
+        DexScreenerClient, "get_best_pair_for_token", lambda self, chain_id, addr: make_pair(token_address=addr, price_usd="2.0")
+    )
+
+    resp = c.post(f"/api/close-position/{token}")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["closed"] is True
+    assert "20.00" in data["message"]  # 10 units * $2.0
+    assert "estimated" in data["message"].lower()
+
+    conn = get_connection(db_path)
+    assert Ledger(conn).get_open_positions() == []
+
+
+def test_close_position_404s_for_unknown_token(client):
+    c, _ = client
+    resp = c.post("/api/close-position/NOT_A_REAL_TOKEN?proceeds_usd=1")
+    data = resp.json()
+    assert data == {"closed": False, "message": "That position isn't open anymore."}
+
+
 def test_dashboard_requires_auth_when_credentials_configured(client, monkeypatch):
     c, _ = client
     monkeypatch.setenv("DASHBOARD_USERNAME", "alice")
@@ -159,6 +209,7 @@ def test_dashboard_requires_auth_when_credentials_configured(client, monkeypatch
     assert c.post("/api/offline").status_code == 401
     assert c.post("/api/online").status_code == 401
     assert c.post("/api/sell/TOKEN1").status_code == 401
+    assert c.post("/api/close-position/TOKEN1?proceeds_usd=1").status_code == 401
     assert c.post("/api/caution-level/4").status_code == 401
     assert c.post("/api/big-risk/start").status_code == 401
     assert c.post("/api/big-risk/cancel").status_code == 401
