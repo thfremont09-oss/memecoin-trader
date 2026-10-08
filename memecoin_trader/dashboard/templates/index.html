@@ -322,6 +322,7 @@
     <div class="button-row">
       <button id="offlineBtn" class="btn-danger" onclick="goOffline()" {{ 'disabled' if not summary.trading_enabled else '' }}>Go offline (sell all)</button>
       <button id="onlineBtn" class="btn-success" onclick="goOnline()" {{ 'disabled' if summary.trading_enabled else '' }}>Go online</button>
+      <button id="closeAllBtn" class="btn-close-external" onclick="closeAllExternally()" title="Use this if your wallet no longer has ANY of these tokens (e.g. you sold everything directly in Solflare/Phantom). No swaps are executed -- this only updates the ledger.">Reconcile with wallet (mark all sold)</button>
     </div>
   </div>
   <div class="subtitle">
@@ -1816,6 +1817,13 @@
   document.querySelectorAll('.btn-close-external').forEach((btn) => {
     btn.addEventListener('click', () => closeExternally(btn));
   });
+
+  function closeAllExternally() {
+    if (!confirm('Mark every open position closed, no swaps executed? Only do this if your wallet genuinely holds none of these tokens anymore (e.g. you sold everything directly in Solflare/Phantom). This cannot be undone.')) {
+      return;
+    }
+    postAction('/api/close-all-positions', document.getElementById('closeAllBtn'), 'Reconciling...', 'Reconcile with wallet (mark all sold)');
+  }
 
   // ---- Manual buy: search DexScreener, buy a self-chosen amount --------
 

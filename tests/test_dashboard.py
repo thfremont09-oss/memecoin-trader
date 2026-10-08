@@ -200,6 +200,55 @@ def test_close_position_404s_for_unknown_token(client):
     assert data == {"closed": False, "message": "That position isn't open anymore."}
 
 
+def test_close_all_positions_closes_everything_with_market_data(client, monkeypatch):
+    c, db_path = client
+    token_a = "TOKENCLOSEALL1111111111111111111111111111111"
+    token_b = "TOKENCLOSEALL2222222222222222222222222222222"
+    _seed_open_position(db_path, token_a)
+    _seed_open_position(db_path, token_b)
+    monkeypatch.setattr(
+        DexScreenerClient, "get_best_pair_for_token", lambda self, chain_id, addr: make_pair(token_address=addr)
+    )
+
+    resp = c.post("/api/close-all-positions")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["closed"] == 2
+    assert data["total"] == 2
+
+    conn = get_connection(db_path)
+    assert Ledger(conn).get_open_positions() == []
+
+
+def test_close_all_positions_skips_ones_with_no_market_data(client, monkeypatch):
+    c, db_path = client
+    token_a = "TOKENCLOSEALL3333333333333333333333333333333"
+    token_b = "TOKENCLOSEALL4444444444444444444444444444444"
+    _seed_open_position(db_path, token_a)
+    _seed_open_position(db_path, token_b)
+
+    def fake_lookup(self, chain_id, addr):
+        return make_pair(token_address=addr) if addr == token_a else None
+
+    monkeypatch.setattr(DexScreenerClient, "get_best_pair_for_token", fake_lookup)
+
+    resp = c.post("/api/close-all-positions")
+    data = resp.json()
+    assert data["closed"] == 1
+    assert data["total"] == 2
+
+    conn = get_connection(db_path)
+    remaining = Ledger(conn).get_open_positions()
+    assert len(remaining) == 1
+    assert remaining[0].token_address == token_b
+
+
+def test_close_all_positions_with_no_open_positions(client):
+    c, _ = client
+    resp = c.post("/api/close-all-positions")
+    assert resp.json() == {"closed": 0, "total": 0, "message": "No open positions."}
+
+
 def test_dashboard_requires_auth_when_credentials_configured(client, monkeypatch):
     c, _ = client
     monkeypatch.setenv("DASHBOARD_USERNAME", "alice")
@@ -210,6 +259,7 @@ def test_dashboard_requires_auth_when_credentials_configured(client, monkeypatch
     assert c.post("/api/online").status_code == 401
     assert c.post("/api/sell/TOKEN1").status_code == 401
     assert c.post("/api/close-position/TOKEN1?proceeds_usd=1").status_code == 401
+    assert c.post("/api/close-all-positions").status_code == 401
     assert c.post("/api/caution-level/4").status_code == 401
     assert c.post("/api/big-risk/start").status_code == 401
     assert c.post("/api/big-risk/cancel").status_code == 401

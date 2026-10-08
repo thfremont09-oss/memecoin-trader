@@ -214,6 +214,28 @@ def cmd_sell(args: argparse.Namespace) -> int:
     return 1
 
 
+def _close_position_price(position, args, settings, market_client) -> tuple[Decimal, Decimal, str] | None:
+    """Returns (price_usd, proceeds_usd, human-readable source) for closing
+    `position`, or None if no price could be determined (caller should skip
+    it). Shared by the single-token and --all paths."""
+    if args.proceeds_usd is not None:
+        proceeds_usd = Decimal(str(args.proceeds_usd))
+        price_usd = proceeds_usd / position.quantity if position.quantity > 0 else Decimal(0)
+        return price_usd, proceeds_usd, f"${proceeds_usd} total proceeds (what you said you actually received)"
+    if args.price is not None:
+        price_usd = Decimal(str(args.price))
+        return price_usd, price_usd * position.quantity, f"${price_usd}/token (what you provided)"
+    market = market_client.get_best_pair_for_token(settings.chain_id, position.token_address)
+    if market is None:
+        return None
+    price_usd = market.price_usd
+    return (
+        price_usd,
+        price_usd * position.quantity,
+        f"${price_usd}/token, CURRENT market price -- not necessarily what you actually got.",
+    )
+
+
 def cmd_close_position(args: argparse.Namespace) -> int:
     """Marks an open position closed in the ledger WITHOUT executing a swap --
     for when you already sold it yourself directly in your wallet (Solflare,
@@ -222,69 +244,68 @@ def cmd_close_position(args: argparse.Namespace) -> int:
     holdings on its own (only the SOL *cash* balance auto-syncs) -- a
     position the bot didn't sell itself stays "open" here forever, and the
     engine will keep trying (and failing) to exit it, unless you close it
-    with this."""
-    from memecoin_trader.execution.base import FillResult
+    with this. --all closes every open position at once (e.g. your wallet
+    is empty but the dashboard still shows positions open), each priced
+    independently off current market data -- --price/--proceeds-usd don't
+    apply there since they're per-token, exact amounts."""
     from memecoin_trader.market.dexscreener import DexScreenerClient
+
+    if not args.all and not args.token_address:
+        print("Pass a token_address, or --all to close every open position.")
+        return 1
+    if args.all and (args.price is not None or args.proceeds_usd is not None):
+        print("--price/--proceeds-usd are exact, per-token amounts -- they don't make sense with --all.")
+        print("Run close-position once per token instead if you have exact proceeds for each.")
+        return 1
 
     setup_logging()
     settings = load_settings()
     conn = get_connection(DB_PATH)
     init_db(conn, Decimal(str(settings.starting_balance_usd)))
     ledger = Ledger(conn)
+    market_client = DexScreenerClient()
 
-    position = ledger.get_open_position_for_token(args.token_address)
-    if position is None:
-        print(f"No open position for {args.token_address}.")
+    positions = ledger.get_open_positions() if args.all else [ledger.get_open_position_for_token(args.token_address)]
+    positions = [p for p in positions if p is not None]
+    if not positions:
+        print("No open position for that token." if not args.all else "No open positions.")
         return 1
 
-    if args.proceeds_usd is not None:
-        proceeds_usd = Decimal(str(args.proceeds_usd))
-        price_usd = proceeds_usd / position.quantity if position.quantity > 0 else Decimal(0)
-        price_source = f"${proceeds_usd} total proceeds (what you said you actually received)"
-    elif args.price is not None:
-        price_usd = Decimal(str(args.price))
-        proceeds_usd = price_usd * position.quantity
-        price_source = f"${price_usd}/token (what you provided)"
-    else:
-        market = DexScreenerClient().get_best_pair_for_token(settings.chain_id, args.token_address)
-        if market is None:
-            print("No --price/--proceeds-usd given, and current market data isn't available either.")
-            print("Re-run with --proceeds-usd <amount>, the actual total you received, for an accurate record.")
-            return 1
-        price_usd = market.price_usd
-        proceeds_usd = price_usd * position.quantity
-        price_source = (
-            f"${price_usd}/token, CURRENT market price -- not necessarily what you actually got. "
-            "Use --proceeds-usd for an accurate realized P&L."
-        )
+    priced: list[tuple[object, Decimal, Decimal, str]] = []
+    for position in positions:
+        result = _close_position_price(position, args, settings, market_client)
+        if result is None:
+            print(f"Skipping {position.symbol} ({position.token_address}) -- no price available.")
+            continue
+        price_usd, proceeds_usd, source = result
+        priced.append((position, price_usd, proceeds_usd, source))
+        print(f"{position.symbol} ({position.token_address}) qty={position.quantity}: {source} -> ${proceeds_usd:.4f}")
 
-    print(f"Closing {position.symbol} ({args.token_address}) qty={position.quantity}")
-    print(f"Recording at: {price_source}")
-    print(f"Recorded proceeds: ${proceeds_usd:.4f}")
-    print("No swap will be executed -- this only updates the ledger/dashboard.")
+    if not priced:
+        print("Nothing could be priced -- nothing closed.")
+        return 1
 
+    print("No swap will be executed for any of these -- this only updates the ledger/dashboard.")
     if not args.yes:
-        answer = input("Type 'yes' to close this position in the ledger: ")
+        prompt = f"Type 'yes' to close {len(priced)} position(s) in the ledger: "
+        answer = input(prompt)
         if answer.strip().lower() != "yes":
             print("aborted.")
             return 1
 
-    fill = FillResult(
-        price_usd=price_usd,
-        quantity=position.quantity,
-        amount_usd=proceeds_usd,
-        fee_usd=Decimal(0),
-        tx_id=None,
-    )
-    ledger.apply_sell(
-        position=position,
-        fraction=Decimal(1),
-        fill=fill,
-        reason="manual_external_sell",
-        mark_take_profit_taken=True,
-        mode=settings.mode,
-    )
-    print(f"Closed {position.symbol}. It will stop showing as an open position.")
+    from memecoin_trader.execution.base import FillResult
+
+    for position, price_usd, proceeds_usd, _source in priced:
+        fill = FillResult(price_usd=price_usd, quantity=position.quantity, amount_usd=proceeds_usd, fee_usd=Decimal(0), tx_id=None)
+        ledger.apply_sell(
+            position=position,
+            fraction=Decimal(1),
+            fill=fill,
+            reason="manual_external_sell",
+            mark_take_profit_taken=True,
+            mode=settings.mode,
+        )
+    print(f"Closed {len(priced)} position(s). They'll stop showing as open on the dashboard.")
     return 0
 
 
@@ -431,10 +452,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="mark an open position closed in the ledger without executing a swap "
         "(for when you already sold it directly in your wallet, outside the bot)",
     )
-    p_close.add_argument("token_address")
-    p_close.add_argument("--price", type=float, help="USD price per token to record")
+    p_close.add_argument("token_address", nargs="?", help="omit if using --all")
+    p_close.add_argument("--all", action="store_true", help="close every currently open position")
+    p_close.add_argument("--price", type=float, help="USD price per token to record (single-token only)")
     p_close.add_argument(
-        "--proceeds-usd", type=float, help="total USD you actually received for the whole position (most accurate)"
+        "--proceeds-usd",
+        type=float,
+        help="total USD you actually received for the whole position (single-token only, most accurate)",
     )
     p_close.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
     p_close.set_defaults(func=cmd_close_position)

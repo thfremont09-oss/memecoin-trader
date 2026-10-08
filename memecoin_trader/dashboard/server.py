@@ -330,6 +330,47 @@ def api_close_position(token_address: str, proceeds_usd: float | None = None, _a
     return {"closed": True, "message": f"Closed {position.symbol} at ${proceeds:.2f}{estimated_note}."}
 
 
+@app.post("/api/close-all-positions")
+def api_close_all_positions(_auth: None = Depends(require_auth)):
+    """Closes every open position in the ledger WITHOUT executing any swaps
+    -- for when your wallet no longer matches the dashboard at all (e.g. you
+    sold everything directly in Solflare/Phantom). Each position is priced
+    off current DexScreener data, since there's no way to know your actual
+    per-token proceeds here; close-position (single-token, dashboard button
+    or CLI) takes an exact proceeds_usd if you want accurate P&L for one."""
+    from memecoin_trader.execution.base import FillResult
+
+    settings = load_settings()
+    ledger = _ledger()
+    positions = ledger.get_open_positions()
+    if not positions:
+        return {"closed": 0, "total": 0, "message": "No open positions."}
+
+    closed = 0
+    for position in positions:
+        market = _market_client.get_best_pair_for_token(settings.chain_id, position.token_address)
+        if market is None:
+            continue
+        proceeds = market.price_usd * position.quantity
+        fill = FillResult(price_usd=market.price_usd, quantity=position.quantity, amount_usd=proceeds, fee_usd=Decimal(0), tx_id=None)
+        ledger.apply_sell(
+            position=position,
+            fraction=Decimal(1),
+            fill=fill,
+            reason="manual_external_sell",
+            mark_take_profit_taken=True,
+            mode=settings.mode,
+        )
+        closed += 1
+
+    total = len(positions)
+    if closed == total:
+        message = f"Closed all {closed} position(s) (estimated from current market prices)."
+    else:
+        message = f"Closed {closed}/{total} position(s) -- the rest had no market data to price them at. Try again shortly."
+    return {"closed": closed, "total": total, "message": message}
+
+
 @app.post("/api/caution-level/{level}")
 def api_set_caution_level(level: int, _auth: None = Depends(require_auth)):
     """Sets the caution-level slider. Takes effect on the engine's very next
