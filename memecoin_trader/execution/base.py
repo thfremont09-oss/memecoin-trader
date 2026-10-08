@@ -28,5 +28,9 @@ class Executor(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def sell(self, token_address: str, quantity: Decimal, market: PairInfo) -> FillResult:
+    def sell(self, token_address: str, quantity: Decimal, market: PairInfo | None) -> FillResult:
+        """`market` may be None when live DexScreener data for this token is
+        unavailable/stale -- an implementation that can price the sell some
+        other way (LiveExecutor: the DEX aggregator's own quote) should still
+        go through with it rather than block the exit."""
         raise NotImplementedError

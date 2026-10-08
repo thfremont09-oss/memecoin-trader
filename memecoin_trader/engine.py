@@ -813,7 +813,14 @@ class TradingEngine:
             return False
 
         market = self.market.get_best_pair_for_token(self.settings.chain_id, token_address)
-        if market is None:
+        if market is None and self.executor.mode != "live":
+            # Paper mode has to simulate the fill against DexScreener's own
+            # price/liquidity, so with no market data there's nothing to
+            # simulate against. Live mode doesn't have that problem --
+            # LiveExecutor prices the sell from the DEX aggregator's own
+            # quote, so a stale/missing DexScreener listing (exactly the
+            # kind of thing that happens during a crash, i.e. the moment
+            # you most need to get out) must not block the exit below.
             logger.error(
                 "cannot sell %s (%s): no market data available right now", position.symbol, token_address
             )
@@ -829,10 +836,10 @@ class TradingEngine:
                 mark_take_profit_taken=True,
                 mode=self.settings.mode,
             )
-            logger.info("SOLD (manual): %s (%s) at $%s", position.symbol, token_address, market.price_usd)
+            logger.info("SOLD (manual): %s (%s) at $%s", position.symbol, token_address, fill.price_usd)
             return True
         except Exception:
-            logger.exception("manual sell failed for %s", position.symbol)
+            logger.exception("manual sell failed for %s (%s)", position.symbol, token_address)
             return False
 
     def liquidate_all(self, reason: str = "manual_liquidation") -> int:

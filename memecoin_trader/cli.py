@@ -177,7 +177,10 @@ def cmd_liquidate(args: argparse.Namespace) -> int:
     closed = engine.liquidate_all()
     print(f"Liquidated {closed}/{len(open_positions)} position(s).")
     if closed < len(open_positions):
-        print("Some positions couldn't be sold (see logs) — likely missing market data right now. Try again shortly.")
+        if settings.mode == "live":
+            print("Some positions couldn't be sold — the swap failed. Check trader.log for the exact error.")
+        else:
+            print("Some positions couldn't be sold (see logs) — likely missing market data right now. Try again shortly.")
         return 1
     return 0
 
@@ -204,7 +207,10 @@ def cmd_sell(args: argparse.Namespace) -> int:
     if engine.liquidate_position(args.token_address):
         print(f"Sold {position.symbol}.")
         return 0
-    print("Couldn't sell — no market data available right now. Try again shortly.")
+    if settings.mode == "live":
+        print("Couldn't sell — the swap failed. Check trader.log for the exact error.")
+    else:
+        print("Couldn't sell — no market data available right now. Try again shortly.")
     return 1
 
 

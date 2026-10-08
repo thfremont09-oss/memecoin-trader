@@ -61,6 +61,23 @@ def _ledger() -> Ledger:
     return Ledger(conn)
 
 
+def _sell_failure_reason(mode: str) -> str:
+    """Why `liquidate_position` returned False, worded for the mode it ran
+    in. Paper mode can only fail this way for one reason (no DexScreener
+    data to simulate against); live mode no longer depends on DexScreener
+    for pricing a sell, so a failure there is a real execution error
+    (the swap itself failing), not missing market data."""
+    if mode == "live":
+        return "the swap failed"
+    return "no market data available right now"
+
+
+def _sell_failure_message(mode: str) -> str:
+    if mode == "live":
+        return "Couldn't sell — the swap failed. Check trader.log for the exact error."
+    return "Couldn't sell — no market data available right now. Try again shortly."
+
+
 @app.get("/", response_class=HTMLResponse)
 def index(request: Request, range: str = "all", _auth: None = Depends(require_auth)):
     settings = load_settings()
@@ -161,7 +178,7 @@ def api_big_risk_stop(_auth: None = Depends(require_auth)):
     sold = engine.liquidate_position(position.token_address, reason="big_risk_manual_sell")
     if sold:
         engine.ledger.end_big_risk()
-    message = "Sold." if sold else "Couldn't sell — no market data available right now. Try again shortly."
+    message = "Sold." if sold else _sell_failure_message(settings.mode)
     return {"sold": sold, "message": message}
 
 
@@ -235,7 +252,10 @@ def api_offline(_auth: None = Depends(require_auth)):
     elif closed == total:
         message = f"Offline. Sold all {closed} position(s)."
     else:
-        message = f"Offline. Sold {closed}/{total} position(s) — the rest had no market data available."
+        message = (
+            f"Offline. Sold {closed}/{total} position(s) — the rest failed to sell "
+            f"({_sell_failure_reason(settings.mode)}). Check trader.log for the exact error."
+        )
     return {"trading_enabled": False, "closed": closed, "total": total, "message": message}
 
 
@@ -260,7 +280,7 @@ def api_sell_one(token_address: str, _auth: None = Depends(require_auth)):
         return {"sold": False, "message": "That position isn't open anymore."}
 
     sold = engine.liquidate_position(token_address)
-    message = "Sold." if sold else "Couldn't sell — no market data available right now. Try again shortly."
+    message = "Sold." if sold else _sell_failure_message(settings.mode)
     return {"sold": sold, "message": message}
 
 

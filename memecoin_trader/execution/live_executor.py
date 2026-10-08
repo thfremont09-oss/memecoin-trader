@@ -12,7 +12,8 @@ Safety gates, all of which must hold before a single order goes out:
   - config mode == "live" (config.yaml or MODE=live)
   - env I_UNDERSTAND_LIVE_TRADING_RISK=yes
   - env SOLANA_PRIVATE_KEY set (base58-encoded secret key)
-  - every individual trade <= execution.live.max_trade_usd (config.yaml)
+  - every individual buy <= execution.live.max_trade_usd (config.yaml) --
+    sells are never capped, so an exit can never be blocked by this
 
 `solders` and `base58` are optional dependencies — see requirements-live.txt —
 and are only imported when this class is actually instantiated.
@@ -205,9 +206,15 @@ class LiveExecutor(Executor):
             tx_id=tx_sig,
         )
 
-    def sell(self, token_address: str, quantity: Decimal, market: PairInfo) -> FillResult:
-        usd_value_estimate = quantity * market.price_usd
-        self._check_cap(usd_value_estimate)
+    def sell(self, token_address: str, quantity: Decimal, market: PairInfo | None) -> FillResult:
+        """No cap check here, deliberately: `max_trade_usd` bounds how much a
+        single *buy* can risk, not how much you're allowed to get back out
+        with. Capping sells too would mean the panic exits (the per-position
+        Sell button, "Go offline", Big Risk's stop) could silently fail to
+        close exactly the position you most need to dump. `market` isn't
+        used at all: pricing comes entirely from the DEX aggregator's own
+        quote, so DexScreener being stale/unreachable for this token (the
+        `market` argument is None) never blocks the exit."""
         decimals = self._get_mint_decimals(token_address)
         amount_atomic = int(quantity * (Decimal(10) ** decimals))
 

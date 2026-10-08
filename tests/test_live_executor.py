@@ -109,13 +109,40 @@ def test_sell_uses_the_mints_real_decimals_not_a_hardcoded_guess():
     assert captured["amount_atomic"] == 400 * 10**9  # not 400 * 10**6
 
 
-def test_sell_enforces_the_live_cap_before_touching_the_network():
-    executor = make_executor(MagicMock())
-    executor._get_mint_decimals = MagicMock(side_effect=AssertionError("should never be called"))
+def test_sell_is_never_capped_even_when_the_position_is_worth_more_than_the_cap():
+    # max_trade_usd bounds buy size (position-sizing risk), not exits -- a
+    # sell must always be able to go through, including the panic exits
+    # (per-position Sell, Go offline, Big Risk stop) on a position that grew
+    # past the cap. If this were capped like buy() is, those could silently
+    # fail to close exactly the position you most need to dump.
+    session = MagicMock()
+    session.post.return_value = fake_response({"result": {"value": {"decimals": 6}}})
+    executor = make_executor(session)
+    executor._get_quote = lambda *a, **k: {"outAmount": "1000000000"}  # 1 SOL
+    executor._execute_swap = lambda quote: ("FAKE_TX_SIG", quote)
+    executor._get_sol_price_usd = lambda: Decimal("150")  # 1 SOL -> $150
 
     market = make_pair(price_usd="1.0")
-    with pytest.raises(LiveTradingDisabledError, match="exceeds the configured live safety cap"):
-        executor.sell("SOMEMINT", Decimal("1000"), market)  # $1000 worth, cap is $5
+    fill = executor.sell("SOMEMINT", Decimal("1000"), market)  # $1000 worth by DexScreener, cap is $5
+
+    assert fill.amount_usd == Decimal("150")
+
+
+def test_sell_does_not_require_market_data_to_go_through():
+    # DexScreener being stale/unreachable for this token (market=None) must
+    # never block a live sell -- pricing comes entirely from the DEX
+    # aggregator's own quote.
+    session = MagicMock()
+    session.post.return_value = fake_response({"result": {"value": {"decimals": 6}}})
+    executor = make_executor(session)
+    executor._get_quote = lambda *a, **k: {"outAmount": "1000000000"}
+    executor._execute_swap = lambda quote: ("FAKE_TX_SIG", quote)
+    executor._get_sol_price_usd = lambda: Decimal("150")
+
+    fill = executor.sell("SOMEMINT", Decimal("400"), None)
+
+    assert fill.amount_usd == Decimal("150")
+    assert fill.tx_id == "FAKE_TX_SIG"
 
 
 def test_get_wallet_balance_usd_converts_lamports_to_usd():

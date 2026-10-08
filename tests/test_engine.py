@@ -32,7 +32,8 @@ class FakeMarket:
 
 class FakeLiveExecutor:
     """Stands in for LiveExecutor without touching real Solana/Jupiter --
-    only what _sync_live_wallet_balance needs (mode, get_wallet_balance_usd)."""
+    only what _sync_live_wallet_balance needs (mode, get_wallet_balance_usd),
+    plus a sell() fake for liquidate_position's live-mode market-data path."""
 
     mode = "live"
 
@@ -40,12 +41,19 @@ class FakeLiveExecutor:
         self.balance_usd = balance_usd
         self.raises = raises
         self.calls = 0
+        self.sell_calls = []
 
     def get_wallet_balance_usd(self):
         self.calls += 1
         if self.raises:
             raise RuntimeError("RPC unreachable")
         return self.balance_usd
+
+    def sell(self, token_address, quantity, market):
+        from memecoin_trader.execution.base import FillResult
+
+        self.sell_calls.append((token_address, quantity, market))
+        return FillResult(price_usd=Decimal("1.0"), quantity=quantity, amount_usd=quantity, fee_usd=Decimal(0), tx_id="FAKE_TX")
 
 
 class FakeRugCheckClient:
@@ -269,6 +277,26 @@ def test_liquidate_position_sells_just_that_token(conn):
 def test_liquidate_position_returns_false_for_unknown_token(conn):
     engine, signal_source, market = build_engine(conn)
     assert engine.liquidate_position("NOT_A_REAL_TOKEN") is False
+
+
+def test_liquidate_position_in_live_mode_sells_even_with_no_market_data(conn):
+    # DexScreener lagging or going dark for a token must not block an exit
+    # in live mode -- LiveExecutor prices the sell from the swap quote
+    # itself, not from DexScreener, so liquidate_position must still try.
+    engine, signal_source, market = build_engine(conn)
+    token = "TOKEN1111111111111111111111111111111111112"
+    market.pairs[token] = make_pair(token_address=token, price_usd="1.0")
+    signal_source.queue = [make_signal(token_address=token, score=90)]
+    engine._poll_signals()
+
+    live_executor = FakeLiveExecutor()
+    engine.executor = live_executor
+    del market.pairs[token]  # simulate DexScreener having no/stale data for this token
+    quantity = engine.ledger.get_open_position_for_token(token).quantity
+
+    assert engine.liquidate_position(token) is True
+    assert live_executor.sell_calls == [(token, quantity, None)]
+    assert engine.ledger.get_open_positions() == []
 
 
 def test_trading_enabled_defaults_true_and_can_be_toggled(conn):
