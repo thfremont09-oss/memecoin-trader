@@ -29,6 +29,11 @@ class TimingConfig:
     equity_snapshot_interval_seconds: int
     liquidity_rug_check_interval_seconds: float
     token_cooldown_minutes: int
+    # Live mode only. Defaulted (not required in config.yaml) so existing
+    # configs don't break on upgrade. Independent of signal_poll_interval_seconds
+    # so a wallet deposit/withdrawal shows up in the dashboard and sizing
+    # quickly, without having to wait on the (much slower) hype-signal cadence.
+    wallet_balance_sync_interval_seconds: int = 10
 
 
 @dataclass(frozen=True)

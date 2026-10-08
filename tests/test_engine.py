@@ -124,6 +124,34 @@ def test_live_wallet_sync_failure_keeps_last_known_cash_instead_of_blocking(conn
     assert engine.ledger.get_cash_usd() == starting_cash
 
 
+def test_tick_syncs_live_wallet_balance_even_while_offline(conn):
+    # A wallet top-up/withdrawal should show up quickly, not only once
+    # every signal_poll_interval_seconds -- and "offline" only stops new
+    # buys, so the sync must not be gated on trading_enabled either.
+    engine, signal_source, market = build_engine(conn)
+    live_executor = FakeLiveExecutor(balance_usd=Decimal("77"))
+    engine.executor = live_executor
+    engine.ledger.set_trading_enabled(False)
+
+    engine.tick()
+
+    assert live_executor.calls == 1
+    assert engine.ledger.get_cash_usd() == Decimal("77")
+
+
+def test_tick_does_not_resync_wallet_balance_before_its_own_interval(conn):
+    engine, signal_source, market = build_engine(conn)
+    live_executor = FakeLiveExecutor(balance_usd=Decimal("77"))
+    engine.executor = live_executor
+
+    engine.tick()  # first tick also runs _poll_signals (its own interval starts at 0 too)
+    calls_after_first_tick = live_executor.calls
+    assert calls_after_first_tick >= 1
+
+    engine.tick()  # same instant -- no interval (signal poll or wallet sync) has elapsed again
+    assert live_executor.calls == calls_after_first_tick
+
+
 def test_full_cycle_buy_then_stop_loss_sell(conn):
     engine, signal_source, market = build_engine(conn)
     initial_cash = engine.ledger.get_cash_usd()

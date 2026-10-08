@@ -263,6 +263,7 @@ class TradingEngine:
         self._last_position_check = 0.0
         self._last_big_risk_poll = 0.0
         self._last_equity_snapshot = 0.0
+        self._last_wallet_sync = 0.0
         self._last_ml_check = 0.0
         self._last_ml_train_dataset_size = 0
         # token_address -> {source_name: last_seen_unix_time}, used to spot
@@ -322,6 +323,15 @@ class TradingEngine:
         if now - self._last_equity_snapshot >= self.settings.timing.equity_snapshot_interval_seconds:
             self._record_equity()
             self._last_equity_snapshot = now
+
+        # Unconditional (runs regardless of trading_enabled/big-risk state)
+        # and on its own, faster cadence -- a wallet top-up or withdrawal
+        # should show up in the dashboard/sizing quickly, not only once
+        # every signal_poll_interval_seconds (or _big_risk_search, which
+        # also calls this) happens to run next. No-op in paper mode.
+        if now - self._last_wallet_sync >= self.settings.timing.wallet_balance_sync_interval_seconds:
+            self._sync_live_wallet_balance()
+            self._last_wallet_sync = now
 
         if (
             self.settings.entry.ml.enabled
