@@ -45,6 +45,13 @@ JUPITER_SWAP_URL = "https://lite-api.jup.ag/swap/v1/swap"
 SOL_MINT = "So11111111111111111111111111111111111111112"
 LAMPORTS_PER_SOL = Decimal(1_000_000_000)
 
+# lite-api.jup.ag is the free, rate-limited Jupiter tier -- a single 429
+# under normal use is expected, not exceptional, and must never be what
+# kills a sell attempt. Retried the same way DexScreenerClient retries its
+# own transient failures.
+MAX_RETRIES = 3
+RETRY_BACKOFF_SECONDS = 1.5
+
 
 class LiveTradingDisabledError(RuntimeError):
     pass
@@ -101,6 +108,37 @@ class LiveExecutor(Executor):
                 f"trade of ${usd_amount} exceeds the configured live safety cap of ${cap}"
             )
 
+    def _get(self, url: str, params: dict | None = None, timeout: float = 15) -> requests.Response:
+        return self._request_with_retry(self._session.get, url, timeout, params=params)
+
+    def _post(self, url: str, payload: dict, timeout: float = 15) -> requests.Response:
+        return self._request_with_retry(self._session.post, url, timeout, json=payload)
+
+    @staticmethod
+    def _request_with_retry(request_fn, url: str, timeout: float, **kwargs) -> requests.Response:
+        last_exc: Exception | None = None
+        for attempt in range(MAX_RETRIES + 1):
+            try:
+                resp = request_fn(url, timeout=timeout, **kwargs)
+            except requests.RequestException as exc:
+                last_exc = exc
+                if attempt < MAX_RETRIES:
+                    time.sleep(RETRY_BACKOFF_SECONDS * (attempt + 1))
+                    continue
+                raise
+            if resp.status_code == 429 and attempt < MAX_RETRIES:
+                retry_after = resp.headers.get("Retry-After")
+                wait = float(retry_after) if retry_after else RETRY_BACKOFF_SECONDS * (attempt + 1)
+                logger.warning(
+                    "rate-limited (429) on %s, retrying in %.1fs (attempt %d/%d)",
+                    url, wait, attempt + 1, MAX_RETRIES,
+                )
+                time.sleep(wait)
+                continue
+            resp.raise_for_status()
+            return resp
+        raise last_exc  # pragma: no cover -- loop above always returns or raises first
+
     def get_wallet_balance_usd(self) -> Decimal:
         """The real on-chain SOL balance of this wallet, converted to USD --
         ground truth for how much is actually available to trade with,
@@ -110,8 +148,7 @@ class LiveExecutor(Executor):
         amount instead, and nothing in the ledger knows about a manual
         deposit/withdrawal made directly to this wallet)."""
         payload = {"jsonrpc": "2.0", "id": 1, "method": "getBalance", "params": [self.public_key]}
-        resp = self._session.post(self._rpc_url, json=payload, timeout=15)
-        resp.raise_for_status()
+        resp = self._post(self._rpc_url, payload)
         result = resp.json()
         if "error" in result:
             raise RuntimeError(f"Solana RPC couldn't fetch wallet balance: {result['error']}")
@@ -127,8 +164,7 @@ class LiveExecutor(Executor):
         that's never guaranteed, and selling with the wrong assumption
         sends Jupiter a quantity off by orders of magnitude."""
         payload = {"jsonrpc": "2.0", "id": 1, "method": "getTokenSupply", "params": [token_mint]}
-        resp = self._session.post(self._rpc_url, json=payload, timeout=15)
-        resp.raise_for_status()
+        resp = self._post(self._rpc_url, payload)
         result = resp.json()
         if "error" in result:
             raise RuntimeError(f"Solana RPC couldn't look up decimals for {token_mint}: {result['error']}")
@@ -144,8 +180,7 @@ class LiveExecutor(Executor):
             "amount": amount_atomic,
             "slippageBps": int(self._config.slippage_bps),
         }
-        resp = self._session.get(JUPITER_QUOTE_URL, params=params, timeout=15)
-        resp.raise_for_status()
+        resp = self._get(JUPITER_QUOTE_URL, params=params)
         return resp.json()
 
     def _execute_swap(self, quote: dict) -> tuple[str, dict]:
@@ -157,8 +192,7 @@ class LiveExecutor(Executor):
             "wrapAndUnwrapSol": True,
             "prioritizationFeeLamports": int(self._config.priority_fee_lamports),
         }
-        resp = self._session.post(JUPITER_SWAP_URL, json=payload, timeout=20)
-        resp.raise_for_status()
+        resp = self._post(JUPITER_SWAP_URL, payload, timeout=20)
         swap_data = resp.json()
 
         raw_tx = base64.b64decode(swap_data["swapTransaction"])
@@ -175,8 +209,7 @@ class LiveExecutor(Executor):
                 {"encoding": "base64", "skipPreflight": False, "maxRetries": 3},
             ],
         }
-        rpc_resp = self._session.post(self._rpc_url, json=rpc_payload, timeout=30)
-        rpc_resp.raise_for_status()
+        rpc_resp = self._post(self._rpc_url, rpc_payload, timeout=30)
         rpc_result = rpc_resp.json()
         if "error" in rpc_result:
             raise RuntimeError(f"Solana RPC rejected transaction: {rpc_result['error']}")

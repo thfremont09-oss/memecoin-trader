@@ -44,9 +44,16 @@ def make_executor(session=None) -> LiveExecutor:
     return executor
 
 
-def fake_response(json_data):
+def fake_response(json_data, status_code=200, headers=None):
     resp = MagicMock()
-    resp.raise_for_status = MagicMock()
+    resp.status_code = status_code
+    resp.headers = headers or {}
+    if status_code >= 400:
+        import requests
+
+        resp.raise_for_status = MagicMock(side_effect=requests.HTTPError(f"{status_code} error", response=resp))
+    else:
+        resp.raise_for_status = MagicMock()
     resp.json.return_value = json_data
     return resp
 
@@ -81,6 +88,38 @@ def test_get_mint_decimals_raises_on_rpc_error_instead_of_guessing():
 
     with pytest.raises(RuntimeError, match="not found"):
         executor._get_mint_decimals("SOMEMINT")
+
+
+def test_get_quote_retries_a_429_and_succeeds(monkeypatch):
+    # The real bug that blocked a live sell: lite-api.jup.ag free tier
+    # rate-limits (429), and with no retry that killed the sell attempt
+    # outright. A transient 429 must be absorbed, not fatal.
+    monkeypatch.setattr("memecoin_trader.execution.live_executor.time.sleep", lambda _seconds: None)
+    session = MagicMock()
+    session.get.side_effect = [
+        fake_response({}, status_code=429, headers={"Retry-After": "1"}),
+        fake_response({"outAmount": "123"}, status_code=200),
+    ]
+    executor = make_executor(session)
+
+    result = executor._get_quote("IN", "OUT", 1000)
+
+    assert result == {"outAmount": "123"}
+    assert session.get.call_count == 2
+
+
+def test_get_quote_raises_after_exhausting_retries_on_sustained_429(monkeypatch):
+    monkeypatch.setattr("memecoin_trader.execution.live_executor.time.sleep", lambda _seconds: None)
+    session = MagicMock()
+    session.get.return_value = fake_response({}, status_code=429)
+    executor = make_executor(session)
+
+    import requests
+
+    with pytest.raises(requests.HTTPError):
+        executor._get_quote("IN", "OUT", 1000)
+
+    assert session.get.call_count == 4  # initial attempt + MAX_RETRIES retries
 
 
 def test_sell_uses_the_mints_real_decimals_not_a_hardcoded_guess():
