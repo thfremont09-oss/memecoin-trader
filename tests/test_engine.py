@@ -37,18 +37,27 @@ class FakeLiveExecutor:
 
     mode = "live"
 
-    def __init__(self, balance_usd=Decimal("0"), raises=False):
+    def __init__(self, balance_usd=Decimal("0"), raises=False, token_balances=None, token_balance_raises=False):
         self.balance_usd = balance_usd
         self.raises = raises
         self.calls = 0
         self.sell_calls = []
         self.buy_calls = []
+        self.token_balances = token_balances or {}  # token_address -> Decimal, default 0
+        self.token_balance_raises = token_balance_raises
+        self.get_token_balance_calls = []
 
     def get_wallet_balance_usd(self):
         self.calls += 1
         if self.raises:
             raise RuntimeError("RPC unreachable")
         return self.balance_usd
+
+    def get_token_balance(self, token_address):
+        self.get_token_balance_calls.append(token_address)
+        if self.token_balance_raises:
+            raise RuntimeError("RPC unreachable")
+        return self.token_balances.get(token_address, Decimal("0"))
 
     def sell(self, token_address, quantity, market):
         from memecoin_trader.execution.base import FillResult
@@ -158,6 +167,110 @@ def test_tick_does_not_resync_wallet_balance_before_its_own_interval(conn):
 
     engine.tick()  # same instant -- no interval (signal poll or wallet sync) has elapsed again
     assert live_executor.calls == calls_after_first_tick
+
+
+def test_reconcile_closes_a_position_the_wallet_holds_none_of(conn):
+    # Sold directly in Solflare/Phantom outside the bot, or a buy that
+    # looked like it succeeded but actually reverted on-chain -- either
+    # way the wallet holds none of it, so it must not linger "open" on
+    # the dashboard forever.
+    engine, signal_source, market = build_engine(conn)
+    token = "TOKENRECONCILE00000000000000000000000000001"
+    market.pairs[token] = make_pair(token_address=token, price_usd="1.0")
+    signal_source.queue = [make_signal(token_address=token, score=90)]
+    engine._poll_signals()
+    assert len(engine.ledger.get_open_positions()) == 1
+
+    engine.executor = FakeLiveExecutor(token_balances={token: Decimal("0")})
+
+    engine._reconcile_open_positions_with_wallet()
+
+    assert engine.ledger.get_open_positions() == []
+    closing_trade = engine.ledger.get_recent_trades()[0]
+    assert closing_trade.reason == "auto_reconciled_empty_wallet"
+    assert closing_trade.amount_usd == Decimal("0")
+
+
+def test_reconcile_leaves_a_position_alone_when_wallet_balance_matches(conn):
+    engine, signal_source, market = build_engine(conn)
+    token = "TOKENRECONCILE00000000000000000000000000002"
+    market.pairs[token] = make_pair(token_address=token, price_usd="1.0")
+    signal_source.queue = [make_signal(token_address=token, score=90)]
+    engine._poll_signals()
+    position = engine.ledger.get_open_positions()[0]
+
+    live_executor = FakeLiveExecutor(token_balances={token: position.quantity})
+    engine.executor = live_executor
+
+    engine._reconcile_open_positions_with_wallet()
+
+    assert len(engine.ledger.get_open_positions()) == 1
+
+
+def test_reconcile_does_not_auto_adjust_a_partial_mismatch_just_logs_it(conn, caplog):
+    # A different-but-nonzero quantity (e.g. you sold half of it yourself)
+    # is surfaced, not silently rewritten -- the right cost-basis split
+    # for a partial external sell isn't something to guess at.
+    engine, signal_source, market = build_engine(conn)
+    token = "TOKENRECONCILE00000000000000000000000000003"
+    market.pairs[token] = make_pair(token_address=token, price_usd="1.0")
+    signal_source.queue = [make_signal(token_address=token, score=90)]
+    engine._poll_signals()
+    position = engine.ledger.get_open_positions()[0]
+
+    live_executor = FakeLiveExecutor(token_balances={token: position.quantity / 2})
+    engine.executor = live_executor
+
+    with caplog.at_level(logging.WARNING, logger="memecoin_trader.engine"):
+        engine._reconcile_open_positions_with_wallet()
+
+    assert len(engine.ledger.get_open_positions()) == 1
+    assert engine.ledger.get_open_positions()[0].quantity == position.quantity  # untouched
+    assert any("not auto-adjusting" in r.message for r in caplog.records)
+
+
+def test_reconcile_is_a_noop_in_paper_mode(conn):
+    engine, signal_source, market = build_engine(conn)
+    token = "TOKENRECONCILE00000000000000000000000000004"
+    market.pairs[token] = make_pair(token_address=token, price_usd="1.0")
+    signal_source.queue = [make_signal(token_address=token, score=90)]
+    engine._poll_signals()
+
+    engine._reconcile_open_positions_with_wallet()  # executor is still the paper one -- should not raise
+
+    assert len(engine.ledger.get_open_positions()) == 1
+
+
+def test_reconcile_rpc_failure_skips_that_position_instead_of_assuming_anything(conn):
+    engine, signal_source, market = build_engine(conn)
+    token = "TOKENRECONCILE00000000000000000000000000005"
+    market.pairs[token] = make_pair(token_address=token, price_usd="1.0")
+    signal_source.queue = [make_signal(token_address=token, score=90)]
+    engine._poll_signals()
+
+    engine.executor = FakeLiveExecutor(token_balance_raises=True)
+
+    engine._reconcile_open_positions_with_wallet()  # should not raise
+
+    assert len(engine.ledger.get_open_positions()) == 1
+
+
+def test_tick_reconciles_positions_on_its_own_interval(conn):
+    engine, signal_source, market = build_engine(conn)
+    token = "TOKENRECONCILE00000000000000000000000000006"
+    market.pairs[token] = make_pair(token_address=token, price_usd="1.0")
+    signal_source.queue = [make_signal(token_address=token, score=90)]
+    engine._poll_signals()
+    assert len(engine.ledger.get_open_positions()) == 1
+
+    live_executor = FakeLiveExecutor(token_balances={token: Decimal("0")})
+    engine.executor = live_executor
+    engine.ledger.set_trading_enabled(False)  # must reconcile even while offline
+
+    engine.tick()
+
+    assert token in live_executor.get_token_balance_calls
+    assert engine.ledger.get_open_positions() == []
 
 
 def test_full_cycle_buy_then_stop_loss_sell(conn):

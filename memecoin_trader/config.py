@@ -34,6 +34,11 @@ class TimingConfig:
     # so a wallet deposit/withdrawal shows up in the dashboard and sizing
     # quickly, without having to wait on the (much slower) hype-signal cadence.
     wallet_balance_sync_interval_seconds: int = 10
+    # Live mode only, same defaulting reasoning as above. Separate from
+    # wallet_balance_sync_interval_seconds (and a bit slower by default)
+    # since this is N RPC calls per cycle -- one per open position -- not
+    # just one.
+    position_reconcile_interval_seconds: int = 30
 
 
 @dataclass(frozen=True)

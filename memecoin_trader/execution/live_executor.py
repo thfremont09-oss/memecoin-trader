@@ -164,6 +164,36 @@ class LiveExecutor(Executor):
         sol_balance = Decimal(lamports) / LAMPORTS_PER_SOL
         return sol_balance * self._get_sol_price_usd()
 
+    def get_token_balance(self, token_mint: str) -> Decimal:
+        """The real, current on-chain quantity of `token_mint` this wallet
+        holds, summed across every token account it has for that mint
+        (normally just one, the associated token account; zero if it has
+        none at all). Ground truth for reconciling the ledger's open
+        positions against what's actually in the wallet, the same way
+        get_wallet_balance_usd is ground truth for cash -- a position the
+        bot thinks is open but the wallet holds none of (sold directly in
+        Solflare/Phantom, or a buy that looked like it succeeded but
+        actually reverted on-chain) needs this to ever notice."""
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getTokenAccountsByOwner",
+            "params": [self.public_key, {"mint": token_mint}, {"encoding": "jsonParsed"}],
+        }
+        resp = self._post(self._rpc_url, payload)
+        result = resp.json()
+        if "error" in result:
+            raise RuntimeError(f"Solana RPC couldn't fetch token balance for {token_mint}: {result['error']}")
+        accounts = result.get("result", {}).get("value") or []
+        total = Decimal(0)
+        for account in accounts:
+            try:
+                token_amount = account["account"]["data"]["parsed"]["info"]["tokenAmount"]
+                total += Decimal(token_amount["amount"]) / (Decimal(10) ** int(token_amount["decimals"]))
+            except (KeyError, TypeError, ValueError):
+                continue  # not a parseable token account -- skip rather than guess
+        return total
+
     def _get_mint_decimals(self, token_mint: str) -> int:
         """Real decimals for this specific mint, via the same RPC endpoint
         used for everything else -- memecoins are usually 6 decimals but

@@ -18,6 +18,7 @@ timing:
   liquidity_rug_check_interval_seconds: 30  # the "sudden liquidity drop" rug check compares against a reading from this far back, NOT position_check_interval_seconds -- a single 5s-apart comparison was firing on ordinary thin-pool price-impact noise, not just real rugs
   token_cooldown_minutes: 60         # back to 60 — more patient before re-buying a token you just sold
   wallet_balance_sync_interval_seconds: 10  # live mode only -- a wallet top-up/withdrawal shows up in the dashboard and sizing this often, independent of signal_poll_interval_seconds
+  position_reconcile_interval_seconds: 30  # live mode only -- closes any open position the wallet actually holds none of (sold directly in Solflare/Phantom, or a buy that reverted on-chain) automatically, not just via the dashboard's "Already sold?" button
 
 entry:
   mention_score_threshold: 55.0      # back to 55 — more selective, needs real conviction before buying

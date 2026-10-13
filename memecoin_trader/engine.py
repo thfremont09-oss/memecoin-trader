@@ -22,7 +22,7 @@ from memecoin_trader.config import (
     ExitConfig,
     Settings,
 )
-from memecoin_trader.execution.base import Executor
+from memecoin_trader.execution.base import Executor, FillResult
 from memecoin_trader.execution.paper_executor import PaperExecutor
 from memecoin_trader.market.dexscreener import DexScreenerClient
 from memecoin_trader.market.rugcheck import RugCheckClient
@@ -264,6 +264,7 @@ class TradingEngine:
         self._last_big_risk_poll = 0.0
         self._last_equity_snapshot = 0.0
         self._last_wallet_sync = 0.0
+        self._last_position_reconcile = 0.0
         self._last_ml_check = 0.0
         self._last_ml_train_dataset_size = 0
         # token_address -> {source_name: last_seen_unix_time}, used to spot
@@ -333,6 +334,16 @@ class TradingEngine:
             self._sync_live_wallet_balance()
             self._last_wallet_sync = now
 
+        # Same reasoning as the wallet-cash sync above, for *positions*:
+        # unconditional, its own cadence, no-op in paper mode. Closes any
+        # open position the wallet actually holds none of (sold directly
+        # in Solflare/Phantom, or a buy that looked like it went through
+        # but reverted on-chain) automatically, instead of only when the
+        # "Already sold?"/"Reconcile with wallet" buttons are clicked.
+        if now - self._last_position_reconcile >= self.settings.timing.position_reconcile_interval_seconds:
+            self._reconcile_open_positions_with_wallet()
+            self._last_position_reconcile = now
+
         if (
             self.settings.entry.ml.enabled
             and now - self._last_ml_check >= self.settings.entry.ml.retrain_check_interval_minutes * 60
@@ -356,6 +367,61 @@ class TradingEngine:
             logger.exception("failed to sync live wallet balance -- using last-known cash_usd this cycle")
             return
         self.ledger.set_cash_usd(real_balance)
+
+    def _reconcile_open_positions_with_wallet(self) -> None:
+        """Live mode only: closes any open position the wallet actually
+        holds none of -- sold directly in Solflare/Phantom outside the
+        bot, or a buy that looked like it succeeded but the transaction
+        actually reverted on-chain (see LiveExecutor._confirm_transaction,
+        which stops *new* instances of the latter, but can't retroactively
+        fix one that already happened before that existed).
+
+        Deliberately conservative: only auto-closes the unambiguous case
+        (wallet holds ~none of it, closed at $0 proceeds since that's what
+        you actually got -- cash_usd self-corrects separately via
+        _sync_live_wallet_balance regardless of what this records). A
+        *different*, still-nonzero quantity than the ledger expects (e.g.
+        a partial manual sell) is logged, not auto-adjusted -- guessing
+        the right cost-basis split for a partial external sell is riskier
+        than just surfacing it for a manual look via "Already sold?".
+        A no-op in paper mode; an RPC failure for one position just skips
+        it this cycle rather than assuming anything."""
+        if self.executor.mode != "live":
+            return
+        for position in self.ledger.get_open_positions():
+            try:
+                real_quantity = self.executor.get_token_balance(position.token_address)
+            except Exception:
+                logger.exception(
+                    "failed to check wallet balance for %s (%s) -- skipping reconcile this cycle",
+                    position.symbol, position.token_address,
+                )
+                continue
+
+            dust = position.quantity * Decimal("0.001")  # rounding/dust, not a real remaining holding
+            if real_quantity <= dust:
+                logger.warning(
+                    "RECONCILE: wallet holds none of %s (%s) but it's open in the ledger -- closing it",
+                    position.symbol, position.token_address,
+                )
+                fill = FillResult(
+                    price_usd=Decimal(0), quantity=position.quantity, amount_usd=Decimal(0),
+                    fee_usd=Decimal(0), tx_id=None,
+                )
+                self.ledger.apply_sell(
+                    position=position,
+                    fraction=Decimal(1),
+                    fill=fill,
+                    reason="auto_reconciled_empty_wallet",
+                    mark_take_profit_taken=True,
+                    mode=self.settings.mode,
+                )
+            elif abs(real_quantity - position.quantity) > dust:
+                logger.warning(
+                    "RECONCILE: wallet holds %s of %s (%s) but the ledger expects %s -- "
+                    "not auto-adjusting, use \"Already sold?\" on the dashboard if you sold part of it yourself",
+                    real_quantity, position.symbol, position.token_address, position.quantity,
+                )
 
     def _poll_signals(self) -> None:
         self._sync_live_wallet_balance()

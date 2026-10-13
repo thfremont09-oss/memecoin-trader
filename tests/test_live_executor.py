@@ -132,6 +132,42 @@ def test_confirm_transaction_raises_instead_of_assuming_success_after_timeout(mo
         executor._confirm_transaction("SIGABC")
 
 
+def test_get_token_balance_sums_atomic_amount_not_the_float_ui_amount():
+    # Uses the raw atomic `amount` string + `decimals`, not the API's own
+    # `uiAmount` float, to avoid float-precision drift -- matches the
+    # Decimal discipline used everywhere else here.
+    session = MagicMock()
+    session.post.return_value = fake_response({
+        "result": {
+            "value": [
+                {"account": {"data": {"parsed": {"info": {"tokenAmount": {
+                    "amount": "1234000000", "decimals": 6, "uiAmount": 1234.0,
+                }}}}}},
+            ]
+        }
+    })
+    executor = make_executor(session)
+
+    assert executor.get_token_balance("SOMEMINT") == Decimal("1234")
+
+
+def test_get_token_balance_is_zero_when_wallet_has_no_account_for_the_mint():
+    session = MagicMock()
+    session.post.return_value = fake_response({"result": {"value": []}})
+    executor = make_executor(session)
+
+    assert executor.get_token_balance("SOMEMINT") == Decimal("0")
+
+
+def test_get_token_balance_raises_on_rpc_error_instead_of_guessing():
+    session = MagicMock()
+    session.post.return_value = fake_response({"error": {"message": "unreachable"}})
+    executor = make_executor(session)
+
+    with pytest.raises(RuntimeError, match="unreachable"):
+        executor.get_token_balance("SOMEMINT")
+
+
 def test_get_quote_retries_a_429_and_succeeds(monkeypatch):
     # The real bug that blocked a live sell: lite-api.jup.ag free tier
     # rate-limits (429), and with no retry that killed the sell attempt
