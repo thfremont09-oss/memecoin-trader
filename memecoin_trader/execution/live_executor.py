@@ -52,6 +52,12 @@ LAMPORTS_PER_SOL = Decimal(1_000_000_000)
 MAX_RETRIES = 3
 RETRY_BACKOFF_SECONDS = 1.5
 
+# How long to wait for a submitted transaction to actually land on-chain
+# before giving up on it -- see _confirm_transaction. Solana blockhashes
+# are valid for roughly 60-90s; this stays comfortably inside that window.
+CONFIRMATION_TIMEOUT_SECONDS = 45
+CONFIRMATION_POLL_INTERVAL_SECONDS = 2
+
 
 class LiveTradingDisabledError(RuntimeError):
     pass
@@ -214,8 +220,49 @@ class LiveExecutor(Executor):
         if "error" in rpc_result:
             raise RuntimeError(f"Solana RPC rejected transaction: {rpc_result['error']}")
         tx_signature = rpc_result["result"]
-        logger.warning("LIVE swap submitted: %s", tx_signature)
+        logger.warning("LIVE swap submitted: %s -- waiting for on-chain confirmation", tx_signature)
+        self._confirm_transaction(tx_signature)
+        logger.warning("LIVE swap confirmed: %s", tx_signature)
         return tx_signature, quote
+
+    def _confirm_transaction(self, tx_signature: str) -> None:
+        """sendTransaction only means the cluster ACCEPTED the transaction
+        for broadcast (it passed preflight simulation) -- it does NOT mean
+        the transaction actually landed on-chain. A submitted transaction
+        can still be silently dropped (blockhash expiry, network
+        congestion, no validator ever including it) with sendTransaction
+        itself reporting no error at all. Treating submission as success
+        would let buy()/sell() report a fill -- and the ledger record a
+        trade -- that never actually happened. Polls until the transaction
+        reaches at least 'confirmed' (not just 'processed', which can still
+        be rolled back), or raises once CONFIRMATION_TIMEOUT_SECONDS passes
+        with no confirmation."""
+        deadline = time.time() + CONFIRMATION_TIMEOUT_SECONDS
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "getSignatureStatuses",
+            "params": [[tx_signature], {"searchTransactionHistory": True}],
+        }
+        while True:
+            resp = self._post(self._rpc_url, payload)
+            result = resp.json()
+            if "error" in result:
+                raise RuntimeError(f"Solana RPC couldn't check transaction status: {result['error']}")
+            statuses = result.get("result", {}).get("value") or [None]
+            status = statuses[0]
+            if status is not None:
+                if status.get("err") is not None:
+                    raise RuntimeError(f"transaction {tx_signature} landed but failed: {status['err']}")
+                if status.get("confirmationStatus") in ("confirmed", "finalized"):
+                    return
+            if time.time() >= deadline:
+                raise RuntimeError(
+                    f"transaction {tx_signature} was submitted but never confirmed within "
+                    f"{CONFIRMATION_TIMEOUT_SECONDS}s -- it may have been dropped. Check "
+                    f"https://solscan.io/tx/{tx_signature} before assuming it executed."
+                )
+            time.sleep(CONFIRMATION_POLL_INTERVAL_SECONDS)
 
     def buy(self, token_address: str, usd_amount: Decimal, market: PairInfo) -> FillResult:
         self._check_cap(usd_amount)

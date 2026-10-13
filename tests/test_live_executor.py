@@ -90,6 +90,48 @@ def test_get_mint_decimals_raises_on_rpc_error_instead_of_guessing():
         executor._get_mint_decimals("SOMEMINT")
 
 
+def test_confirm_transaction_returns_once_status_is_confirmed(monkeypatch):
+    # sendTransaction only means the cluster ACCEPTED the tx for broadcast --
+    # it can still be silently dropped with no error at that call. This is
+    # the real bug behind "dashboard says bought, wallet shows nothing":
+    # treating submission as success with no confirmation check at all.
+    monkeypatch.setattr("memecoin_trader.execution.live_executor.time.sleep", lambda _seconds: None)
+    session = MagicMock()
+    session.post.side_effect = [
+        fake_response({"result": {"value": [None]}}),  # not found yet (still propagating)
+        fake_response({"result": {"value": [{"confirmationStatus": "confirmed", "err": None}]}}),
+    ]
+    executor = make_executor(session)
+
+    executor._confirm_transaction("SIGABC")  # should not raise
+
+    assert session.post.call_count == 2
+
+
+def test_confirm_transaction_raises_if_the_transaction_landed_but_failed():
+    session = MagicMock()
+    session.post.return_value = fake_response(
+        {"result": {"value": [{"confirmationStatus": "confirmed", "err": {"InstructionError": [0, "Custom"]}}]}}
+    )
+    executor = make_executor(session)
+
+    with pytest.raises(RuntimeError, match="landed but failed"):
+        executor._confirm_transaction("SIGABC")
+
+
+def test_confirm_transaction_raises_instead_of_assuming_success_after_timeout(monkeypatch):
+    import memecoin_trader.execution.live_executor as live_executor_module
+
+    monkeypatch.setattr(live_executor_module, "CONFIRMATION_TIMEOUT_SECONDS", 0)
+    monkeypatch.setattr(live_executor_module.time, "sleep", lambda _seconds: None)
+    session = MagicMock()
+    session.post.return_value = fake_response({"result": {"value": [None]}})  # never shows up
+    executor = make_executor(session)
+
+    with pytest.raises(RuntimeError, match="never confirmed"):
+        executor._confirm_transaction("SIGABC")
+
+
 def test_get_quote_retries_a_429_and_succeeds(monkeypatch):
     # The real bug that blocked a live sell: lite-api.jup.ag free tier
     # rate-limits (429), and with no retry that killed the sell attempt
