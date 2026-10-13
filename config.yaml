@@ -26,7 +26,7 @@ entry:
   min_volume_24h_usd: 10000
   min_pair_age_minutes: 5            # avoid the first few minutes (sniper/instant-rug risk) — safety filter, unchanged
   max_pair_age_hours: 72             # only chase fresh hype, not old coins
-  max_open_positions: 4              # back to 4 — fewer, more deliberate concurrent bets
+  max_open_positions: 7
   position_size_pct_of_cash: 0.15    # was 0.20 — smaller fraction of cash per trade; this is the cash-scaling input to the confidence-based sizing below, not a flat position size
   min_trade_usd: 5.0
   max_trade_usd: 500.0                # NEW hard ceiling (was 25) — position size now scales with both account size and how confident the bot is (ML model's predicted quality once trained, else combined signal score/corroboration), between min_trade_usd and this cap -- see _position_amount() in entry_strategy.py. A small account stays small regardless of confidence; a well-funded, high-confidence trade approaches this cap, a shaky one on that same account stays well below it.
