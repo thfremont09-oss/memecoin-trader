@@ -571,14 +571,27 @@ class TradingEngine:
 
         cash = self.ledger.get_cash_usd()
         br = self.settings.big_risk
+        # In live mode, LiveExecutor.buy() enforces its OWN hard cap
+        # (execution.live.max_trade_usd) independently of anything decided
+        # here -- if max_position_usd sized a buy above that cap, the buy
+        # would get silently rejected every single time (LiveTradingDisabledError,
+        # caught below as a generic failure), and Big Risk would never
+        # actually go "all in"; it would just fail to find a target forever.
+        # Bounding the sizing cap here by the live cap means it instead goes
+        # as all-in as your configured live safety cap currently allows --
+        # raise execution.live.max_trade_usd if you want Big Risk able to
+        # commit more than that.
+        big_risk_cap = br.max_position_usd
+        if self.executor.mode == "live":
+            big_risk_cap = min(big_risk_cap, self.settings.live_execution.max_trade_usd)
         # mention_score_threshold=-1 accepts any score (this mode chases
         # whatever's available within the window, not conviction);
-        # position_size_pct_of_cash=0.97 + max_trade_usd=big_risk.max_position_usd
-        # means evaluate_entry's own sizing math lands on "as much of the
-        # cash balance as it can safely go, capped at max_position_usd" --
-        # a fixed-size gamble that doesn't scale up as the account grows,
-        # and the 0.97 (not 1.0) leaves room for the buy fee on top of it
-        # so InsufficientCashError can't reject every single attempt. Every
+        # position_size_pct_of_cash=0.97 + max_trade_usd=big_risk_cap means
+        # evaluate_entry's own sizing math lands on "as much of the cash
+        # balance as it can safely go, capped at big_risk_cap" -- a
+        # fixed-size gamble that doesn't scale up as the account grows, and
+        # the 0.97 (not 1.0) leaves room for the buy fee on top of it so
+        # InsufficientCashError can't reject every single attempt. Every
         # other override below trades some safety margin for actually
         # finding a candidate within the window, per big_risk.* in
         # config.yaml -- max_danger_flags, fail_closed, and the hardcoded
@@ -587,7 +600,7 @@ class TradingEngine:
             self.settings.entry,
             mention_score_threshold=-1.0,
             position_size_pct_of_cash=0.97,
-            max_trade_usd=br.max_position_usd,
+            max_trade_usd=big_risk_cap,
             confidence_scaled_sizing=False,
             min_liquidity_usd=br.min_liquidity_usd,
             min_volume_24h_usd=br.min_volume_24h_usd,

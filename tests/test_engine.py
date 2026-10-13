@@ -42,6 +42,7 @@ class FakeLiveExecutor:
         self.raises = raises
         self.calls = 0
         self.sell_calls = []
+        self.buy_calls = []
 
     def get_wallet_balance_usd(self):
         self.calls += 1
@@ -54,6 +55,13 @@ class FakeLiveExecutor:
 
         self.sell_calls.append((token_address, quantity, market))
         return FillResult(price_usd=Decimal("1.0"), quantity=quantity, amount_usd=quantity, fee_usd=Decimal(0), tx_id="FAKE_TX")
+
+    def buy(self, token_address, usd_amount, market):
+        from memecoin_trader.execution.base import FillResult
+
+        self.buy_calls.append((token_address, usd_amount, market))
+        quantity = usd_amount / market.price_usd if market.price_usd > 0 else Decimal(0)
+        return FillResult(price_usd=market.price_usd, quantity=quantity, amount_usd=usd_amount, fee_usd=Decimal(0), tx_id="FAKE_TX")
 
 
 class FakeRugCheckClient:
@@ -647,6 +655,30 @@ def test_big_risk_search_caps_the_buy_at_max_position_usd_not_all_of_cash(conn):
     # spent close to the $100 cap, not ~97% of the full $300 cash balance
     spent = Decimal("300") - engine.ledger.get_cash_usd()
     assert Decimal("95") < spent <= Decimal("101")
+
+
+def test_big_risk_search_in_live_mode_is_bounded_by_the_live_safety_cap(conn):
+    # LiveExecutor.buy() enforces its own hard cap (execution.live.max_trade_usd)
+    # independently of big_risk.max_position_usd -- if entry sizing here aimed
+    # above that cap, every buy would get silently rejected (LiveTradingDisabledError)
+    # and Big Risk would never actually go all-in, just fail to find a target
+    # forever. The cap used for sizing must be bounded by whichever is smaller.
+    engine, signal_source, market = build_engine(conn)
+    live_cap = Decimal(str(engine.settings.live_execution.max_trade_usd))
+    assert live_cap < Decimal(str(engine.settings.big_risk.max_position_usd))  # sanity: fixture must exercise the bound
+
+    live_executor = FakeLiveExecutor(balance_usd=Decimal("300"))  # well above both caps
+    engine.executor = live_executor
+    token = "TOKENRISKLIVE00000000000000000000000000001"
+    market.pairs[token] = make_pair(token_address=token, price_usd="1.0")
+    signal_source.queue = [make_signal(token_address=token, score=5)]
+
+    engine.ledger.start_big_risk_search()
+    engine._big_risk_search()
+
+    assert len(live_executor.buy_calls) == 1
+    amount_usd = live_executor.buy_calls[0][1]
+    assert amount_usd <= live_cap
 
 
 def test_big_risk_search_still_transitions_to_invested_if_feature_saving_fails(conn, monkeypatch):
